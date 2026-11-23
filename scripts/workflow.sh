@@ -25,6 +25,7 @@ EOF
 }
 die() { echo "$*" >&2; exit 1; }
 
+cmdline="$0${*:+ $*}"
 name="" outdir="" do_plot=1 kind=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -72,6 +73,20 @@ outdir=$(cd "$outdir" && pwd)
 stem=$(basename "$zip" .zip)
 dataset="$outdir/$stem"
 results="$outdir/${stem}_results"
+
+# From here on, everything printed also goes to <results>/logs/workflow_*.log.
+# (Earlier messages are only the access/file checks, which stop before any
+# output folder is created.)
+mkdir -p "$results/logs" || die "cannot create $results/logs"
+log="$results/logs/workflow_$(date +%Y%m%d-%H%M%S).log"
+exec 3>&1 4>&2
+exec > >(tee -a "$log") 2>&1
+tee_pid=${!:-}
+echo "# workflow started $(date '+%Y-%m-%d %H:%M:%S') on $(hostname)"
+echo "# command: $cmdline"
+echo "# zip:     $zip"
+echo "# log:     $log"
+echo
 
 if [[ -d "$dataset" ]]; then
   echo "Already extracted, reusing: $dataset"
@@ -144,6 +159,11 @@ if [[ $status -eq 0 ]]; then
 else
   echo "Workflow finished with failures: $results"
 fi
+echo "Log: $log"
+
+# Stop logging and let tee finish writing before exiting.
+exec 1>&3 2>&4 3>&- 4>&-
+[[ -n "$tee_pid" ]] && wait "$tee_pid" 2>/dev/null
 exit $status
 
 

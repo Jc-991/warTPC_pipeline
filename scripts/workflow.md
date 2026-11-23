@@ -94,7 +94,12 @@ output goes to `<output_dir>/<name>_results/`.
     ├── optical/results/         signals.csv for all runs
     ├── charge/<run>/            Blackbox charge output per run (waveforms.root, signal.csv, plots)
     ├── charge/results/          signals.csv for all runs
-    ├── logs/                    full log of each optical and charge run
+    ├── logs/
+    │   ├── workflow_<timestamp>.log   everything this script printed (unzip, optical, charge, plot)
+    │   ├── optical_<timestamp>.log    whole optical step
+    │   ├── charge_<timestamp>.log     whole charge step
+    │   ├── optical/<run>.log          one data run, ending in "# result: OK" or "FAILED"
+    │   └── charge/<run>.log
     ├── optical_status.txt       runs that failed in optical
     ├── charge_status.txt        runs that failed in charge
     └── plots/                   PLOT_GUIDE plots and tables (see below)
@@ -110,6 +115,23 @@ output goes to `<output_dir>/<name>_results/`.
 
 The `plot` section of the main [README](../README.md#plot) describes each file.
 
+## Logs
+
+| Log | Contents | On re-run |
+|---|---|---|
+| `logs/workflow_<timestamp>.log` | Everything the script printed from the unzip step on, the same as the terminal | New file each time |
+| `logs/optical_<timestamp>.log`, `logs/charge_<timestamp>.log` | The whole optical / charge step, with a summary of failed runs at the end | New file each time |
+| `logs/optical/<run>.log`, `logs/charge/<run>.log` | One data run's output, ending in `# result: OK` or `# result: FAILED` | Rewritten |
+
+Errors from the first two checks (`no access to the data`, `<name> does not
+exist`) appear only in the terminal, because they stop the script before any
+output folder is created.
+
+If you leave a long run going, you can follow it from another terminal:
+```bash
+tail -f <output_dir>/<name>_results/logs/workflow_*.log
+```
+
 ## Exit status and checking the results
 
 - `0`: every step and every run succeeded.
@@ -118,8 +140,9 @@ The `plot` section of the main [README](../README.md#plot) describes each file.
 - `2`: wrong usage, for example a missing ZIP name or output folder.
 
 After a run, check these files in this order:
-1. `optical_status.txt` and `charge_status.txt`: which runs failed. The
-   matching log in `logs/` shows why.
+1. `optical_status.txt` and `charge_status.txt`: which runs failed. Each
+   failed run's own log, `logs/optical/<run>.log` or `logs/charge/<run>.log`,
+   shows why.
 2. `plots/status.txt`: missing inputs, for example no `pulseheights.csv`.
 3. `plots/warnings.txt`: settings-ID mismatches and clipped error bars.
 4. `plots/comparisons/notes.csv`: excluded and provisional points.
