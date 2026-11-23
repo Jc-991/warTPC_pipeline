@@ -1,4 +1,4 @@
-# unzip.sh and workflow.sh
+# unzip.sh, workflow.sh and optical-analysis.sh
 
 Two scripts take an uploaded dataset from `/storage/phsccs_grp/transfer/` to
 plots:
@@ -13,7 +13,10 @@ cd scripts
 ./workflow.sh ~/warTPC/data/example ~/warTPC/results      # -> ~/warTPC/results/example_results/
 ```
 
-`example.zip` stands for whatever ZIP you uploaded. Unzip once; after that,
+`example.zip` stands for whatever ZIP you uploaded.
+
+To redo only some optical runs later, use
+[`optical-analysis.sh`](#optical-analysissh-chosen-runs-only). Unzip once; after that,
 run `workflow.sh` on the folder as often as you like.
 
 Both scripts can be run from anywhere, e.g. `scripts/workflow.sh ...` from the
@@ -115,6 +118,45 @@ Giving a ZIP instead of a folder stops with
 | 4 | Runs `optical`, then `charge` (or only the one chosen with `--run`) | Doesn't stop: failed runs are reported and the next step still runs |
 | 5 | Runs `plot` into `<name>_results/plots/` (unless `--no-plot`) | Doesn't stop |
 
+## optical-analysis.sh: chosen runs only
+
+`optical-analysis.sh` runs only the optical analysis, on the runs you choose,
+into the same results folder as `workflow.sh`. Use it to redo a few runs (e.g.
+ones that failed) without rerunning the whole dataset.
+
+```bash
+./optical-analysis.sh ~/warTPC/data/example --list                         # show the runs, numbered
+./optical-analysis.sh ~/warTPC/data/example ~/warTPC/results --runs 2,5-7  # analyse runs 2, 5, 6, 7
+./optical-analysis.sh ~/warTPC/data/example ~/warTPC/results               # asks which runs
+```
+
+```
+./optical-analysis.sh <dataset_dir> <output_dir> [--runs LIST] [--kind pressure|voltage] [--no-plot]
+./optical-analysis.sh <dataset_dir> --list
+```
+
+| Option | Meaning |
+|---|---|
+| `--runs LIST` | Runs to analyse, separated by commas or spaces. `3` = run number 3 from `--list`; `2-5` = numbers 2 to 5; `vr22-07` = a run name; `'vr22-1*'` = a name pattern (quote it); `all` = every run. Without `--runs`, the runs are listed and you are asked |
+| `--list` | Only list the runs with their numbers |
+| `--kind pressure\|voltage` | Marker type in the plots |
+| `--no-plot` | Skip the plots |
+
+What it does:
+1. Analyses only the chosen runs (in a temporary staging folder, so the
+   Blackbox script never sees the other runs).
+2. Replaces those runs' results in `<output_dir>/<name>_results/optical/<run>/`
+   and their logs in `logs/optical/<run>.log`. **Other runs' results are
+   kept.**
+3. Rebuilds `optical/results/signals.csv` and `optical_status.txt` from all
+   runs in the results folder, so they always cover every run.
+4. Remakes the plots from everything in the results folder, including charge
+   results if present.
+
+Its own log is `logs/optical-analysis_<timestamp>.log`.
+
+In a batch job there's no terminal to ask, so `--runs` is required there.
+
 ## Output
 
 ```
@@ -161,7 +203,8 @@ folder per run:
 | File | What it shows | When it exists |
 |---|---|---|
 | `2D_ToT_before_fit.png` | Integrated ToT map before the 2D Gaussian fit, linear and log colour scale; `+` marks the hottest pixel | Every run |
-| `xy_projections_before_fit.png` | Raw X and Y projections (summed ToT per column / row) before any fit or background subtraction, linear and log y | Every run |
+| `2D_ToT_with_projections.png`, `2D_ToT_with_projections_log.png` | The same map with its X projection histogram above and Y projection histogram on the right, on shared pixel axes (linear / log scale) | Every run |
+| `xy_projections_before_fit.png` | X and Y projection histograms (summed ToT per pixel column / row, 256 bins) before any fit or background subtraction, linear and log y | Every run |
 | `2D_integrated_ToT.png` | Final ToT image with the fit contours and the signal/sideband lines | Runs where the 2D fit worked |
 | `x_projection_before_subtraction.png`, `y_projection_before_subtraction.png` | Full projection with the sideband points and the fitted polynomial background, i.e. just before subtraction | Runs where the 2D fit worked |
 | `x_projection_signal.png`, `y_projection_signal.png` | Projection after background subtraction | Runs where the 2D fit worked |
@@ -173,7 +216,8 @@ The fit-dependent plots use the `2nd_degree` background and the `4to8`
 signal/sideband setting.
 
 The originals, including all other settings, are in `optical/<run>/`:
-- before the fit: `diagnostics/ToT-image-raw.png`, `diagnostics/projections-raw.png`
+- before the fit: `diagnostics/ToT-image-raw.png`, `diagnostics/ToT-image-projections(-log).png`,
+  `diagnostics/projections-raw.png`
   (numbers in `projections-raw.csv`, maps in `perChipTOT.npy`, `perChipHIT.npy`)
 - after the fit: `signal-integral_x|y/<degree>/<signal>to<sideband>/`, with
   `ToT-image.png`, `<s>to<b>.png` (before subtraction) and `<s>to<b>_signal.png`
@@ -183,6 +227,9 @@ To list them all:
 ```bash
 find <output_dir>/<name>_results -name '*.png' -path '*optical_per_run*'
 ```
+
+The "every run" files are all made **before** the 2D Gaussian fit and the
+sideband background fit, so they exist even when either of those fails.
 
 **If a run failed:** its folder has only the "every run" files. Look at
 `fit_failed.txt` and the two before-fit plots to see why, e.g. a single hot
@@ -265,5 +312,7 @@ from whatever is in the results folder, so:
 | `has no optical/ or charge/ folder` | both | The ZIP or folder has a different layout. It needs `optical/<run>/` and/or `charge/<run>/` |
 | `contains more than one dataset folder` | unzip | Upload each dataset as its own ZIP |
 | `... is not an unzipped folder; unzip it first` | workflow | You gave `workflow.sh` a ZIP. Run `unzip.sh` first and give `workflow.sh` the folder it prints |
+| `run number 9 is not in 1-6`, `no run matches '...'` | optical-analysis | Check the run numbers and names with `--list` |
+| `no --runs given (and no terminal to ask)` | optical-analysis | In a batch job, give `--runs` |
 | `.../build/optical not found` | workflow | Build the project (see [Before the first run](#before-the-first-run)) |
 | `charge requested, but <name> has no charge/ folder` (or `optical`) | workflow | The dataset has no data for the analysis chosen with `--run`. Check its contents, or use `--run both` |
