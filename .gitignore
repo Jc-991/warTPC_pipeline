@@ -4,3 +4,4 @@ compile_commands.json
 __pycache__/
 blackbox/tpx3dump
 blackbox/tpx3dump.d
+.cache/
