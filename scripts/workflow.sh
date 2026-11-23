@@ -16,7 +16,8 @@ usage() {
 Usage: $(basename "$0") <file.zip> <output_dir> [--run optical|charge|both]
                          [--kind pressure|voltage] [--no-plot]
 
-  <file.zip>      ZIP name in $TRANSFER (or a path to a ZIP)
+  <file.zip>      ZIP name in $TRANSFER (or a path to a ZIP), or an
+                  already unzipped dataset folder (with optical/ and/or charge/)
   <output_dir>    where everything goes: <output_dir>/<name>/ (unzipped data)
                   and <output_dir>/<name>_results/ (analysis and plots)
   --run WHAT      which analysis to run: optical, charge or both (default: both)
@@ -53,22 +54,40 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$name" && -n "$outdir" ]] || { usage >&2; exit 2; }
 
-# 1. Access to the group storage
-if [[ ! -d "$STORAGE" || ! -r "$STORAGE" || ! -x "$STORAGE" ]]; then
-  die "no access to the data"
-fi
-if [[ ! -d "$TRANSFER" || ! -r "$TRANSFER" || ! -x "$TRANSFER" ]]; then
-  die "no access to the data ($TRANSFER is not readable)"
+# 0. Already unzipped? Then use that data directly and skip steps 1-3
+#    (storage access, ZIP check, unzip). Either:
+#    - <file.zip> is itself an unzipped dataset folder, or
+#    - <output_dir>/<name>/ exists from an earlier run of this script.
+is_dataset() { [[ -d "$1/optical" || -d "$1/charge" ]]; }
+stem=$(basename "${name%/}")
+stem="${stem%.zip}"
+reuse=""
+if [[ -d "$name" ]] && is_dataset "$name"; then
+  reuse=$(cd "$name" && pwd)
+elif [[ -d "$outdir/$stem" ]] && is_dataset "$outdir/$stem"; then
+  reuse=$(cd "$outdir/$stem" && pwd)
 fi
 
-# 2. The ZIP itself
-if [[ "$name" == */* ]]; then zip="$name"; else zip="$TRANSFER/$name"; fi
-[[ -f "$zip" || "$zip" == *.zip || ! -f "$zip.zip" ]] || zip="$zip.zip"
-[[ -f "$zip" ]] || die "$(basename "$zip") does not exist"
-[[ -r "$zip" ]] || die "no access to the data ($(basename "$zip") is not readable)"
+if [[ -z "$reuse" ]]; then
+  # 1. Access to the group storage
+  if [[ ! -d "$STORAGE" || ! -r "$STORAGE" || ! -x "$STORAGE" ]]; then
+    die "no access to the data"
+  fi
+  if [[ ! -d "$TRANSFER" || ! -r "$TRANSFER" || ! -x "$TRANSFER" ]]; then
+    die "no access to the data ($TRANSFER is not readable)"
+  fi
+
+  # 2. The ZIP itself
+  if [[ "$name" == */* ]]; then zip="$name"; else zip="$TRANSFER/$name"; fi
+  [[ -f "$zip" || "$zip" == *.zip || ! -f "$zip.zip" ]] || zip="$zip.zip"
+  [[ -f "$zip" ]] || die "$(basename "$zip") does not exist"
+  [[ -r "$zip" ]] || die "no access to the data ($(basename "$zip") is not readable)"
+  command -v unzip >/dev/null || die "unzip is not installed"
+else
+  zip="(not needed: data already unzipped)"
+fi
 
 # Tools needed below
-command -v unzip >/dev/null || die "unzip is not installed"
 case "$run_what" in
   optical) steps=(optical) ;;
   charge)  steps=(charge) ;;
@@ -82,8 +101,7 @@ done
 # 3. Unzip into <output_dir>/<name>
 mkdir -p "$outdir" || die "cannot create $outdir"
 outdir=$(cd "$outdir" && pwd)
-stem=$(basename "$zip" .zip)
-dataset="$outdir/$stem"
+dataset="${reuse:-$outdir/$stem}"
 results="$outdir/${stem}_results"
 
 # From here on, everything printed also goes to <results>/logs/workflow_*.log.
@@ -101,8 +119,10 @@ echo "# run:     ${steps[*]}"
 echo "# log:     $log"
 echo
 
-if [[ -d "$dataset" ]]; then
-  echo "Already extracted, reusing: $dataset"
+if [[ -n "$reuse" ]]; then
+  echo "Already unzipped, using the data in $dataset (no unzip, no ZIP check)"
+elif [[ -e "$dataset" ]]; then
+  die "$dataset exists but has no optical/ or charge/ folder; move or delete it, then rerun"
 else
   echo "Checking $zip"
   unzip -tq "$zip" >/dev/null || die "$(basename "$zip") is damaged or not a ZIP file"

@@ -35,7 +35,7 @@ cd scripts
 
 | Argument / option | Meaning |
 |---|---|
-| `<file.zip>` | ZIP name in `/storage/phsccs_grp/transfer/`. The `.zip` can be left off. A full path to a ZIP elsewhere also works |
+| `<file.zip>` | ZIP name in `/storage/phsccs_grp/transfer/`. The `.zip` can be left off. A full path to a ZIP elsewhere also works, and so does an already unzipped dataset folder (see [Data that is already unzipped](#data-that-is-already-unzipped)) |
 | `<output_dir>` | Where everything goes. Created if missing. The data is unzipped into `<output_dir>/<name>/` and results are written to `<output_dir>/<name>_results/`. Use scratch or project space with room for the data |
 | `--run optical\|charge\|both` | Which analysis to run. Default `both`. With `optical` or `charge`, a missing `optical/` or `charge/` folder in the ZIP counts as a failure; with `both`, a missing folder is just skipped |
 | `--kind pressure\|voltage` | Whether this is a pressure or a voltage dataset, which sets the plot markers. Default: guessed from the ZIP name (`pressure-pass-*`, `prp*`, `voltage-run-*`, `vr*`). If the guess fails, diamonds are used |
@@ -69,6 +69,7 @@ repository folder. It finds `build/` relative to its own location.
 
 | Step | Action | Stops with |
 |---|---|---|
+| 0 | If the data is already unzipped, uses it and skips steps 1–3 | — |
 | 1 | Checks that `/storage/phsccs_grp` and `transfer/` can be read | `no access to the data` |
 | 2 | Checks that the ZIP exists in `transfer/` | `<name> does not exist` |
 | 3 | Tests the ZIP, checks free space, and unzips into `<output_dir>/<name>/` | `<name> is damaged or not a ZIP file`, `not enough space in ...`, `<name> has no optical/ or charge/ folder` |
@@ -82,8 +83,8 @@ Notes on step 3:
 - The `__MACOSX/` folder that ZIPs made on a Mac contain is removed.
 - Extraction happens in a temporary folder first, so a failed unzip leaves
   nothing behind.
-- If `<output_dir>/<name>/` already exists, it is reused and the ZIP is not
-  unzipped again. Delete that folder to force a fresh unzip.
+- If `<output_dir>/<name>/` already exists, it is reused (step 0). Delete
+  that folder to force a fresh unzip.
 
 The original ZIP and the unzipped dataset are never modified. All analysis
 output goes to `<output_dir>/<name>_results/`.
@@ -94,7 +95,8 @@ output goes to `<output_dir>/<name>_results/`.
 <output_dir>/
 ├── <name>/                      unzipped dataset (optical/, charge/)
 └── <name>_results/
-    ├── optical/<run>/           Blackbox optical output per run (output.hdf5, integral.csv, plots)
+    ├── optical/<run>/           Blackbox optical output per run (output.hdf5, integral.csv, plots,
+    │                            diagnostics/ with the 2D map and projections from before the fit)
     ├── optical/results/         signals.csv for all runs
     ├── charge/<run>/            Blackbox charge output per run (waveforms.root, signal.csv, plots)
     ├── charge/results/          signals.csv for all runs
@@ -118,6 +120,46 @@ output goes to `<output_dir>/<name>_results/`.
 - `status.txt` and `warnings.txt`.
 
 The `plot` section of the main [README](../README.md#plot) describes each file.
+
+## 2D images and X/Y projections
+
+The quickest place to look is `plots/optical_per_run/<run>/`, which has one
+folder per run:
+
+| File | What it shows | When it exists |
+|---|---|---|
+| `2D_ToT_before_fit.png` | Integrated ToT map before the 2D Gaussian fit, linear and log colour scale; `+` marks the hottest pixel | Every run |
+| `xy_projections_before_fit.png` | Raw X and Y projections (summed ToT per column / row) before any fit or background subtraction, linear and log y | Every run |
+| `2D_integrated_ToT.png` | Final ToT image with the fit contours and the signal/sideband lines | Runs where the 2D fit worked |
+| `x_projection_before_subtraction.png`, `y_projection_before_subtraction.png` | Full projection with the sideband points and the fitted polynomial background, i.e. just before subtraction | Runs where the 2D fit worked |
+| `x_projection_signal.png`, `y_projection_signal.png` | Projection after background subtraction | Runs where the 2D fit worked |
+| `combined_integral_distribution.png` | Combined signal-integral distribution | Runs where the 2D fit worked |
+| `ToT_summary.txt` | Hits, pixels hit, total ToT, and the hottest pixel's share | Every run |
+| `fit_parameters.txt` or `fit_failed.txt` | 2D fit result with warning flags, or the reason it failed | Every run |
+
+The fit-dependent plots use the `2nd_degree` background and the `4to8`
+signal/sideband setting.
+
+The originals, including all other settings, are in `optical/<run>/`:
+- before the fit: `diagnostics/ToT-image-raw.png`, `diagnostics/projections-raw.png`
+  (numbers in `projections-raw.csv`, maps in `perChipTOT.npy`, `perChipHIT.npy`)
+- after the fit: `signal-integral_x|y/<degree>/<signal>to<sideband>/`, with
+  `ToT-image.png`, `<s>to<b>.png` (before subtraction) and `<s>to<b>_signal.png`
+  (after)
+
+To list them all:
+```bash
+find <output_dir>/<name>_results -name '*.png' -path '*optical_per_run*'
+```
+
+**If a run failed:** its folder has only the "every run" files. Look at
+`fit_failed.txt` and the two before-fit plots to see why, e.g. a single hot
+pixel holding most of the ToT, or no clear light spot.
+
+To view them on a Mac, run this in a Mac terminal:
+```bash
+scp -r hammer:<path to>/<name>_results/plots/optical_per_run ~/Desktop/
+```
 
 ## Logs
 
@@ -150,6 +192,34 @@ After a run, check these files in this order:
 2. `plots/status.txt`: missing inputs, for example no `pulseheights.csv`.
 3. `plots/warnings.txt`: settings-ID mismatches and clipped error bars.
 4. `plots/comparisons/notes.csv`: excluded and provisional points.
+
+## Data that is already unzipped
+
+The script never unzips the same data twice. Before checking the storage or
+the ZIP, it looks for data that is already unzipped:
+
+1. **`<output_dir>/<name>/` from an earlier run.** Rerun the same command and
+   it goes straight to the analysis:
+   ```bash
+   ./workflow.sh example.zip /path/to/scratch/warTPC --run charge
+   ```
+2. **A dataset folder given directly** instead of a ZIP name (any folder with
+   `optical/` and/or `charge/`). It is used where it is, not copied, and
+   results go to `<output_dir>/<folder name>_results/`:
+   ```bash
+   ./workflow.sh ~/warTPC/pressure-pass-05 /path/to/scratch/warTPC
+   ```
+
+In both cases the storage-access check, the ZIP check and the unzip are
+skipped, so this works even if the ZIP has been removed from `transfer/` or
+the storage isn't mounted. The workflow log shows
+`Already unzipped, using the data in ...`.
+
+The script doesn't notice if a ZIP was re-uploaded with new contents. To
+unzip again, delete `<output_dir>/<name>/` first.
+
+If `<output_dir>/<name>/` exists but has no `optical/` or `charge/` folder, the
+script stops rather than overwrite it.
 
 ## Running only optical or only charge
 
