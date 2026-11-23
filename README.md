@@ -222,11 +222,8 @@ Set `WARTPC_PYTHON` to choose the Python interpreter (default `python3`).
 <plot_dir>/
 ├── run_conditions.csv/.md   V0–V4, pressure, methane fraction, exposure, V43+21/P, ID mismatches
 ├── results.csv              S_O, RMS, V50, width, event counts, ratio, review flags per run
-├── optical_per_run/<run>/   ToT image, x/y projections, combined integral distribution,
-│                            x/y_projection_before_subtraction.png (with background fit),
-│                            plus 2D_ToT_before_fit.png, 2D_ToT_with_slices.png,
-│                            xy_slices_before_fit.png
-│                            and fit_parameters.txt / fit_failed.txt
+├── optical_per_run/<run>/   2D_ToT_before_fit.png and xy_slices_before_fit.png only
+│                            (made before the fits, so present for every run)
 ├── v50_distributions/       one histogram per run, with peak estimate, bin width and counts
 ├── summary_plots/           optical and V50: streaming + physics, linear + log;
 │                            ratio: streaming + physics, linear
@@ -271,8 +268,9 @@ original Blackbox.
 | `sideband_failed.txt` | Which sideband setting crashed, and the error |
 | `no_hits.txt` | Written if the HDF5 file has no pixel hits |
 
-`plot` copies the image and the text files into `optical_per_run/<run>/` and
-lists the failure reasons in `status.txt`.
+`plot` copies `ToT-image-raw.png` and `projections-raw.png` into
+`optical_per_run/<run>/` (as `2D_ToT_before_fit.png` and
+`xy_slices_before_fit.png`) and lists the failure reasons in `status.txt`.
 
 ## run_analysis (full pipeline)
 

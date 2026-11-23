@@ -197,62 +197,39 @@ The `plot` section of the main [README](../README.md#plot) describes each file.
 
 ## 2D images and X/Y projections
 
-The quickest place to look is `plots/optical_per_run/<run>/`, which has one
-folder per run:
+`plots/optical_per_run/<run>/` has exactly two plots per run:
 
-| File | What it shows | When it exists |
-|---|---|---|
-| `2D_ToT_before_fit.png` | Integrated ToT map before the 2D Gaussian fit (linear colour scale); `+` marks the peak (hottest pixel) | Every run |
-| `2D_ToT_with_slices.png` | The same map with the **X slice through the peak** (the pixel row at the peak) above and the **Y slice** (the pixel column at the peak) on the right, on shared pixel axes. Dashed lines on the map show where the slices are taken | Every run |
-| `xy_projections_sideband_regions_4to8.png` | X and Y projections as the sideband step uses them: signal region, sideband limits and the sideband points the background polynomial is fitted to, **before** that fit (setting `4to8`) | Runs where the 2D fit worked, even if the sideband step then fails |
-| `sideband_regions.csv` | For every setting and axis: the regions, the number of sideband points, and problems such as a sideband running off the chip | Same |
-| `sideband_failed.txt` | Which sideband setting crashed (polynomial degree, axis, `<s>to<b>`) and the error | Runs whose sideband step crashed |
-| `xy_slices_before_fit.png` | The X and Y slices through the peak as histograms (one bin per pixel, linear y), before any fit or background subtraction | Every run |
-| `2D_integrated_ToT.png` | Final ToT image with the fit contours and the signal/sideband lines | Runs where the 2D fit worked |
-| `x_projection_before_subtraction.png`, `y_projection_before_subtraction.png` | Full projection with the sideband points and the fitted polynomial background, i.e. just before subtraction | Runs where the 2D fit worked |
-| `x_projection_signal.png`, `y_projection_signal.png` | Projection after background subtraction | Runs where the 2D fit worked |
-| `combined_integral_distribution.png` | Combined signal-integral distribution | Runs where the 2D fit worked |
-| `ToT_summary.txt` | Hits, pixels hit, total ToT, and the hottest pixel's share | Every run |
-| `fit_parameters.txt` or `fit_failed.txt` | 2D fit result with warning flags, or the reason it failed | Every run |
+| File | What it shows |
+|---|---|
+| `2D_ToT_before_fit.png` | Integrated ToT map before the 2D Gaussian fit (linear colour scale); `+` marks the peak (hottest pixel) |
+| `xy_slices_before_fit.png` | X slice (pixel row through the peak) and Y slice (pixel column through the peak) as histograms, linear y, before any fit or background subtraction |
 
-All plots use a linear scale. The slices are taken through the hottest pixel,
-which is the only peak known before the 2D fit; if a hot pixel is the hottest,
-the slices go through it rather than the light spot, which the plots make
-obvious. The sideband-region plots instead show the full summed projections,
-because that is what the sideband fit uses.
+Both are made before the 2D fit and the sideband fit, so they exist for every
+run, even ones that fail later. The slices are taken through the hottest pixel,
+the only peak known before the 2D fit.
 
-The fit-dependent plots use the `2nd_degree` background and the `4to8`
-signal/sideband setting.
+Everything else stays in `optical/<run>/`:
+- `diagnostics/`, made before the 2D fit: the map with slices
+  (`ToT-image-projections.png`), `summary.txt`, the numbers in
+  `projections-raw.csv` (slices and full row/column sums) and the raw maps
+  `perChipTOT.npy`, `perChipHIT.npy`
+- `diagnostics/sideband_regions/`, made after the 2D fit but before the
+  sideband fit: the projections with signal/sideband regions for all 10
+  settings, and `regions.csv`
+- `signal-integral_x|y/<degree>/<signal>to<sideband>/`, made by the sideband
+  step: `ToT-image.png`, `<s>to<b>.png` (before subtraction) and
+  `<s>to<b>_signal.png` (after)
 
-The originals, including all other settings, are in `optical/<run>/`:
-- before the 2D fit: `diagnostics/ToT-image-raw.png`, `diagnostics/ToT-image-projections.png`
-  (map with slices), `diagnostics/projections-raw.png` (slices); the numbers,
-  including the full row/column sums, are in `projections-raw.csv`
-- after the 2D fit but before the sideband fit: `diagnostics/sideband_regions/<s>to<b>.png`
-  for all 10 settings, and `regions.csv`
-  (numbers in `projections-raw.csv`, maps in `perChipTOT.npy`, `perChipHIT.npy`)
-- after the fit: `signal-integral_x|y/<degree>/<signal>to<sideband>/`, with
-  `ToT-image.png`, `<s>to<b>.png` (before subtraction) and `<s>to<b>_signal.png`
-  (after)
-
-To list them all:
-```bash
-find <output_dir>/<name>_results -name '*.png' -path '*optical_per_run*'
-```
-
-`optical-analysis.py` has two fits: the 2D Gaussian fit on the ToT map, then a
-polynomial background fit to the sidebands of each projection. The "every run"
-files are made before both; the sideband-region files are made after the 2D fit
-but before any sideband fit. So the projections exist even when either fit
-fails.
-
-**If a run failed:**
-- `fit_failed.txt`: the 2D fit failed. Look at the before-fit plots, e.g. for a
-  single hot pixel holding most of the ToT, or no clear light spot.
+**If a run failed,** `plots/status.txt` gives the reason, and the matching note
+is in `optical/<run>/diagnostics/`:
+- `no_hits.txt`: the HDF5 file has no pixel hits.
+- `fit_failed.txt`: the 2D fit failed. Look at the two plots in
+  `optical_per_run/<run>/`, e.g. for a single hot pixel holding most of the
+  ToT, or no clear light spot.
 - `sideband_failed.txt`: the 2D fit worked but the sideband step crashed. It
-  names the setting; look at `sideband_regions.csv` and the region plot for
-  that setting (in `optical/<run>/diagnostics/sideband_regions/`), e.g. a
-  sideband running off the chip or too few sideband points.
+  names the setting; look at `sideband_regions/regions.csv` and the region plot
+  for that setting, e.g. a sideband running off the chip or too few sideband
+  points.
 
 To view them on a Mac, run this in a Mac terminal:
 ```bash
