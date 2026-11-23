@@ -4,16 +4,15 @@ Automation for the Warwick TPC optical (Timepix3) and charge (waveform) analysis
 Every tool here runs on a dataset without modifying it. Results always go to a
 separate output folder.
 
-There are two ways to run an analysis:
+## Choose a workflow
 
-| Command | What it runs | Use it for |
+| Task | Entry point | Guide |
 |---|---|---|
-| `build/optical`, `build/charge` | The Blackbox `optical_run.sh` / `charge_run.sh`, unchanged | Running the standard Blackbox analysis on a dataset |
-| `build/plot` | `plotting/plot.py` on the output of `optical` / `charge` | Making the tables and plots listed in `PLOT_GUIDE.md` |
-| `run_analysis` | `pipeline/pipeline.py`: optical + V50 analysis, summary plots, comparisons | The full study: S_O, V50, S_O/V50 against V/P, historical comparison, Fig. 26 overlay |
-
-`START_HERE.txt` describes `run_analysis` in full, including its physics
-conventions and caveats.
+| Extract a dataset ZIP | `scripts/unzip.sh` | [Unpacking and running a dataset](scripts/workflow.md#unzipsh) |
+| Analyse a dataset and generate plots | `scripts/workflow.sh` | [Dataset workflow](scripts/workflow.md#workflowsh) |
+| Rerun selected optical runs | `scripts/optical-analysis.sh` | [Selected optical runs](scripts/workflow.md#optical-analysissh-chosen-runs-only) |
+| Run optical, charge, or plotting individually | `build/optical`, `build/charge`, `build/plot` | [Analysis commands](#charge--optical) and [plotting guide](PLOT_GUIDE.md) |
+| Run the optical and V50 study with historical comparisons and the Fig. 26 overlay | `run_analysis` | [Full-study pipeline](#run_analysis-full-pipeline) and [analysis notes](START_HERE.txt) |
 
 ## Folder layout
 
@@ -30,7 +29,7 @@ warTPC_pipeline/
 ├── scripts/unzip.sh        unzip an uploaded ZIP into a data folder
 ├── scripts/workflow.sh     analyse an unzipped dataset: optical, charge, plots
 ├── scripts/optical-analysis.sh  optical analysis of chosen runs only
-├── scripts/workflow.md     how to use both scripts
+├── scripts/workflow.md     usage and troubleshooting for the scripts above
 ├── pipeline/pipeline.py    full optical + V50 pipeline
 ├── reference/
 │   ├── history.csv             comparison baseline (earlier voltage runs, pressure passes 1–5)
@@ -264,6 +263,7 @@ original Blackbox.
 | `perChipTOT.npy`, `perChipHIT.npy` | The 256×256 ToT and hit-count maps, for `np.load` |
 | `fit_parameters.txt` | Fit result with uncertainties, plus flags: non-finite values, centre off the chip, width under half a pixel or over half the chip |
 | `fit_failed.txt` | The fit's error message and starting values, if it failed |
+| `*-rebin<N>.*` | With `WARTPC_REBIN=N` (or `optical-analysis.sh --rebin N`): the map and slices after merging N×N pixels; the 2D fit then runs on that map and its result is converted back to pixel units |
 | `sideband_regions/<s>to<b>.png`, `sideband_regions/regions.csv` | After the 2D fit, before the sideband fit: X and Y projections with the signal region and the sideband points for each of the 10 settings, and a table flagging impossible regions |
 | `sideband_failed.txt` | Which sideband setting crashed, and the error |
 | `no_hits.txt` | Written if the HDF5 file has no pixel hits |

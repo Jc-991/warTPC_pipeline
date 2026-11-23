@@ -226,6 +226,11 @@ def analyse_runs(src, out, rms_limit, warnings, issues):
                     shutil.copy2(opt / rel, dst / name)
                 else:
                     issues.append(f'{run}: missing {rel} (optical-analysis.py without diagnostics?)')
+            # Rebinning test (WARTPC_REBIN / --rebin): rebinned versions of the two plots
+            for f in sorted((opt / 'diagnostics').glob('ToT-image-raw-rebin*.png')):
+                shutil.copy2(f, dst / f"2D_ToT_before_fit_{f.stem.split('-')[-1]}.png")
+            for f in sorted((opt / 'diagnostics').glob('projections-raw-rebin*.png')):
+                shutil.copy2(f, dst / f"xy_slices_before_fit_{f.stem.split('-')[-1]}.png")
             for rel in OPTICAL_FAILURE_NOTES:
                 if (opt / rel).is_file():
                     reason = (opt / rel).read_text().splitlines()[0]

@@ -27,6 +27,8 @@ Usage: $(basename "$0") <dataset_dir> <output_dir> [--runs LIST] [--kind pressur
                   without --runs you are asked interactively
   --list          only list the runs with their numbers
   --kind K        pressure or voltage: marker type in the plots
+  --rebin N       test: merge N x N pixels before the 2D fit (N = 2, 4, ...;
+                  default 1 = no rebinning); also prints the rebinned plots
   --no-plot       skip the plots
   -h, --help      show this help
 EOF
@@ -41,6 +43,9 @@ while [[ $# -gt 0 ]]; do
     --list) list_only=1; shift ;;
     --runs) [[ $# -ge 2 ]] || die "--runs needs a list"; selection="$2"; shift 2 ;;
     --no-plot) do_plot=0; shift ;;
+    --rebin)
+      [[ $# -ge 2 && "$2" =~ ^(1|2|4|8|16)$ ]] || die "--rebin must be 1, 2, 4, 8 or 16"
+      export WARTPC_REBIN="$2"; shift 2 ;;
     --kind)
       [[ $# -ge 2 && ( "$2" == pressure || "$2" == voltage ) ]] || die "--kind must be pressure or voltage"
       kind="$2"; shift 2 ;;
@@ -127,6 +132,7 @@ echo "# optical-analysis started $(date '+%Y-%m-%d %H:%M:%S') on $(hostname)"
 echo "# command: $cmdline"
 echo "# dataset: $dataset"
 echo "# runs:    ${chosen[*]} (${#chosen[@]} of ${#runs[@]})"
+echo "# rebin:   ${WARTPC_REBIN:-1} (2D fit)"
 echo "# log:     $log"
 
 # 4. Analyse the chosen runs in a staging folder. optical_run.sh processes

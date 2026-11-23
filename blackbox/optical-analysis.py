@@ -95,6 +95,127 @@ np.add.at(perChipHIT, (y, x), 1)
 
 total_time=time-time_cut
 
+# --- Rebinning test (added): merge REBIN x REBIN pixels into one bin before
+# the 2D Gaussian fit. Set with the environment variable WARTPC_REBIN (default
+# 1 = no rebinning, the original behaviour). The fit result is converted back
+# to original pixel units, so everything after the fit is unchanged.
+REBIN = int(os.environ.get("WARTPC_REBIN", "1") or 1)
+if REBIN < 1 or 256 % REBIN:
+    print(f"warning: WARTPC_REBIN={REBIN} does not divide 256; not rebinning")
+    REBIN = 1
+nb = 256 // REBIN
+tot_fit_map = perChipTOT.reshape(nb, REBIN, nb, REBIN).sum(axis=(1, 3))
+hit_fit_map = perChipHIT.reshape(nb, REBIN, nb, REBIN).sum(axis=(1, 3))
+if REBIN > 1:
+    print(f"{directory}: rebinning the ToT map by {REBIN} in x and y for the 2D fit ({nb}x{nb} bins)")
+
+
+def save_map_plots(tot_map, hit_map, f):
+    """Map, X/Y slices through the peak, and map with slices, for a map whose
+    bins are f x f pixels (f = 1: original). Axes are always in pixel units."""
+    sfx = "" if f == 1 else f"-rebin{f}"
+    unit = "pixel" if f == 1 else f"{f}x{f}-pixel bin"
+    n = tot_map.shape[0]
+    by, bx = np.unravel_index(np.argmax(tot_map), tot_map.shape)
+    cen = lambda b: f * b + (f - 1) / 2            # bin index -> pixel coordinate
+    px, py = cen(bx), cen(by)
+    t_sum = float(tot_map.sum())
+    frac = 100 * tot_map[by, bx] / t_sum if t_sum else 0
+    ext = (-0.5, 255.5, 255.5, -0.5)
+    title_bin = "" if f == 1 else f", rebinned by {f}"
+    centres = cen(np.arange(n))
+    edges_f = np.arange(n + 1) * f - 0.5
+
+    # (a) the map, linear colour scale
+    fig, ax = plt.subplots(figsize=(11, 9))
+    im = ax.imshow(tot_map, interpolation="nearest", extent=ext)
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label=f"Summed ToT per {unit}")
+    ax.plot(px, py, "r+", ms=16, mew=2)
+    ax.set_xlabel("X Pixel", fontsize=14)
+    ax.set_ylabel("Y Pixel", fontsize=14)
+    ax.set_title(f"{ID}: integrated ToT before the 2D Gaussian fit{title_bin}\n{len(tot):,} hits, "
+                 f"+ = hottest {unit} ({px:g}, {py:g}), {frac:.1f}% of total ToT", fontsize=13)
+    fig.tight_layout()
+    fig.savefig(diag_folder+f"/ToT-image-raw{sfx}.png")
+    plt.close(fig)
+
+    # Slices through the peak bin: X slice = the row through it, Y slice = the
+    # column through it. Error bars sqrt(hits) * 10.2 as in tpx_analysis.
+    slices = {"X": (tot_map[by, :], hit_map[by, :], px, f"row Y = {py:g}"),
+              "Y": (tot_map[:, bx], hit_map[:, bx], py, f"column X = {px:g}")}
+    with open(diag_folder+f"/projections-raw{sfx}.csv", "w") as fd:
+        fd.write(f"pixel_centre,slice_x_tot(row y={py:g}),slice_x_hits,slice_y_tot(column x={px:g}),"
+                 "slice_y_hits,sum_x_tot,sum_y_tot\n")
+        sum_x, sum_y = tot_map.sum(axis=0), tot_map.sum(axis=1)
+        for k in range(n):
+            fd.write(f"{centres[k]:g},{slices['X'][0][k]},{slices['X'][1][k]},{slices['Y'][0][k]},"
+                     f"{slices['Y'][1][k]},{sum_x[k]},{sum_y[k]}\n")
+
+    def slice_hist(ax, tot_p, hit_p, horizontal=False):
+        err_p = np.sqrt(hit_p) * 10.2
+        orient = "horizontal" if horizontal else "vertical"
+        ax.stairs(tot_p, edges_f, orientation=orient, fill=True, color="tab:red", alpha=0.3)
+        ax.stairs(tot_p, edges_f, orientation=orient, color="tab:red", lw=1)
+        if horizontal:
+            ax.errorbar(tot_p, centres, xerr=err_p, fmt="none", ecolor="0.4", lw=0.6)
+            ax.set_xlim(left=0)
+        else:
+            ax.errorbar(centres, tot_p, yerr=err_p, fmt="none", ecolor="0.4", lw=0.6)
+            ax.set_ylim(bottom=0)
+
+    # (b) X and Y slices through the peak
+    fig, axs = plt.subplots(1, 2, figsize=(20, 7))
+    for ax, (axis_name, (tot_p, hit_p, hot, where)) in zip(axs, slices.items()):
+        slice_hist(ax, tot_p, hit_p)
+        ax.axvline(hot, color="tab:blue", ls="--", lw=1, label=f"peak {axis_name} = {hot:g}")
+        ax.set_xlim(-0.5, 255.5)
+        ax.set_xlabel(f"{axis_name} Pixel", fontsize=14)
+        ax.set_ylabel(f"Summed ToT per {unit}", fontsize=14)
+        ax.set_title(f"{axis_name} slice through the peak ({where})", fontsize=14)
+        ax.legend(fontsize=11)
+        ax.grid(alpha=.2)
+    fig.suptitle(f"{ID}: X and Y slices through the peak ({px:g}, {py:g}){title_bin}, "
+                 f"before fit and background subtraction", fontsize=15)
+    fig.tight_layout()
+    fig.savefig(diag_folder+f"/projections-raw{sfx}.png")
+    plt.close(fig)
+
+    # (c) the map with the X slice above and the Y slice to the right
+    fig = plt.figure(figsize=(14, 13))
+    gs = fig.add_gridspec(2, 2, width_ratios=(4, 1.3), height_ratios=(1.3, 4), wspace=0.04, hspace=0.04)
+    ax_img = fig.add_subplot(gs[1, 0])
+    ax_x = fig.add_subplot(gs[0, 0], sharex=ax_img)
+    ax_y = fig.add_subplot(gs[1, 1], sharey=ax_img)
+    ax_info = fig.add_subplot(gs[0, 1])
+    ax_info.axis("off")
+    im = ax_img.imshow(tot_map, aspect="auto", interpolation="nearest", extent=ext)
+    ax_img.axhline(py, color="w", ls="--", lw=0.8)
+    ax_img.axvline(px, color="w", ls="--", lw=0.8)
+    ax_img.plot(px, py, "r+", ms=16, mew=2)
+    ax_img.set_xlabel("X Pixel", fontsize=14)
+    ax_img.set_ylabel("Y Pixel", fontsize=14)
+    slice_hist(ax_x, slices["X"][0], slices["X"][1])
+    slice_hist(ax_y, slices["Y"][0], slices["Y"][1], horizontal=True)
+    ax_x.axvline(px, color="tab:blue", ls="--", lw=1)
+    ax_y.axhline(py, color="tab:blue", ls="--", lw=1)
+    ax_x.set_ylabel(f"ToT, row Y={py:g}", fontsize=11)
+    ax_y.set_xlabel(f"ToT, column X={px:g}", fontsize=11)
+    ax_x.tick_params(labelbottom=False)
+    ax_y.tick_params(labelleft=False)
+    ax_x.grid(alpha=.2)
+    ax_y.grid(alpha=.2)
+    ax_img.set_xlim(-0.5, 255.5)
+    cax = ax_info.inset_axes([0.08, 0.62, 0.84, 0.1])
+    fig.colorbar(im, cax=cax, orientation="horizontal", label=f"Summed ToT per {unit}")
+    ax_info.text(0.0, 0.42,
+                 f"{ID}\n{len(tot):,} hits\npeak ({px:g}, {py:g})\n= {frac:.1f}% of total ToT\n"
+                 f"slices through the peak{title_bin};\nbefore fit and background subtraction",
+                 transform=ax_info.transAxes, va="top", fontsize=11)
+    fig.suptitle(f"{ID}: integrated ToT with X and Y slices through the peak{title_bin}", fontsize=15, y=0.93)
+    fig.savefig(diag_folder+f"/ToT-image-projections{sfx}.png", bbox_inches="tight")
+    plt.close(fig)
+
+
 # --- Diagnostics (added): save the integrated ToT map BEFORE the 2D Gaussian fit,
 # so runs that fail in the fit or later still leave the map to inspect.
 # A failure here only prints a warning; it never stops the analysis.
@@ -110,103 +231,12 @@ try:
                  f"total ToT: {tot_sum}\n"
                  f"hottest pixel (x, y): ({x_max}, {y_max}), ToT {max_val}"
                  f" = {100 * max_val / tot_sum if tot_sum else 0:.2f}% of total\n"
-                 f"exposure (total_time): {total_time}\n")
-    # (a) The integrated ToT map, linear colour scale
-    fig, ax = plt.subplots(figsize=(11, 9))
-    im = ax.imshow(perChipTOT, interpolation="nearest")
-    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Summed ToT per pixel")
-    ax.plot(x_max, y_max, "r+", ms=16, mew=2)   # hottest pixel = fit starting point
-    ax.set_xlabel("X Pixel", fontsize=14)
-    ax.set_ylabel("Y Pixel", fontsize=14)
-    ax.set_title(f"{ID}: integrated ToT before the 2D Gaussian fit\n{len(tot):,} hits, "
-                 f"+ = hottest pixel ({x_max}, {y_max}), "
-                 f"{100 * max_val / tot_sum if tot_sum else 0:.1f}% of total ToT", fontsize=13)
-    fig.tight_layout()
-    fig.savefig(diag_folder+"/ToT-image-raw.png")
-    plt.close(fig)
-
-    # Slices through the peak (the hottest pixel), before any fit or background
-    # subtraction: the X slice is the pixel row y = y_max, the Y slice the
-    # pixel column x = x_max. Values are the map's own (summed ToT per pixel),
-    # error bars sqrt(hits) * 10.2 as in tpx_analysis (before its /1E6 scaling).
-    pix = np.arange(256)
-    slices = {"X": (perChipTOT[y_max, :], perChipHIT[y_max, :], x_max, f"row Y = {y_max}"),
-              "Y": (perChipTOT[:, x_max], perChipHIT[:, x_max], y_max, f"column X = {x_max}")}
-    with open(diag_folder+"/projections-raw.csv", "w") as fd:
-        fd.write(f"pixel,slice_x_tot(row y={y_max}),slice_x_hits,slice_y_tot(column x={x_max}),slice_y_hits,"
-                 "sum_x_tot,sum_y_tot\n")
-        sum_x, sum_y = perChipTOT.sum(axis=0), perChipTOT.sum(axis=1)
-        for i in pix:
-            fd.write(f"{i},{slices['X'][0][i]},{slices['X'][1][i]},{slices['Y'][0][i]},{slices['Y'][1][i]},"
-                     f"{sum_x[i]},{sum_y[i]}\n")
-    edges = np.arange(257) - 0.5            # one histogram bin per pixel
-
-    def slice_hist(ax, tot_p, hit_p, horizontal=False):
-        """Slice as a 256-bin histogram (filled step) with light error bars, linear scale."""
-        err_p = np.sqrt(hit_p) * 10.2
-        orient = "horizontal" if horizontal else "vertical"
-        ax.stairs(tot_p, edges, orientation=orient, fill=True, color="tab:red", alpha=0.3)
-        ax.stairs(tot_p, edges, orientation=orient, color="tab:red", lw=1)
-        if horizontal:
-            ax.errorbar(tot_p, pix, xerr=err_p, fmt="none", ecolor="0.4", lw=0.6)
-            ax.set_xlim(left=0)
-        else:
-            ax.errorbar(pix, tot_p, yerr=err_p, fmt="none", ecolor="0.4", lw=0.6)
-            ax.set_ylim(bottom=0)
-
-    # (b) X and Y slices through the peak
-    fig, axs = plt.subplots(1, 2, figsize=(20, 7))
-    for ax, (axis_name, (tot_p, hit_p, hot, where)) in zip(axs, slices.items()):
-        slice_hist(ax, tot_p, hit_p)
-        ax.axvline(hot, color="tab:blue", ls="--", lw=1, label=f"peak {axis_name} = {hot}")
-        ax.set_xlim(-0.5, 255.5)
-        ax.set_xlabel(f"{axis_name} Pixel", fontsize=14)
-        ax.set_ylabel("Summed ToT per pixel", fontsize=14)
-        ax.set_title(f"{axis_name} slice through the peak ({where})", fontsize=14)
-        ax.legend(fontsize=11)
-        ax.grid(alpha=.2)
-    fig.suptitle(f"{ID}: X and Y slices through the peak ({x_max}, {y_max}), "
-                 f"before fit and background subtraction", fontsize=15)
-    fig.tight_layout()
-    fig.savefig(diag_folder+"/projections-raw.png")
-    plt.close(fig)
-
-    # (c) The map with the X slice above and the Y slice to the right, on shared
-    #     pixel axes; the dashed lines on the map show where the slices are taken.
-    fig = plt.figure(figsize=(14, 13))
-    gs = fig.add_gridspec(2, 2, width_ratios=(4, 1.3), height_ratios=(1.3, 4), wspace=0.04, hspace=0.04)
-    ax_img = fig.add_subplot(gs[1, 0])
-    ax_x = fig.add_subplot(gs[0, 0], sharex=ax_img)
-    ax_y = fig.add_subplot(gs[1, 1], sharey=ax_img)
-    ax_info = fig.add_subplot(gs[0, 1])
-    ax_info.axis("off")
-    im = ax_img.imshow(perChipTOT, aspect="auto", interpolation="nearest")
-    ax_img.axhline(y_max, color="w", ls="--", lw=0.8)
-    ax_img.axvline(x_max, color="w", ls="--", lw=0.8)
-    ax_img.plot(x_max, y_max, "r+", ms=16, mew=2)
-    ax_img.set_xlabel("X Pixel", fontsize=14)
-    ax_img.set_ylabel("Y Pixel", fontsize=14)
-    slice_hist(ax_x, slices["X"][0], slices["X"][1])
-    slice_hist(ax_y, slices["Y"][0], slices["Y"][1], horizontal=True)
-    ax_x.axvline(x_max, color="tab:blue", ls="--", lw=1)
-    ax_y.axhline(y_max, color="tab:blue", ls="--", lw=1)
-    ax_x.set_ylabel(f"ToT, row Y={y_max}", fontsize=11)
-    ax_y.set_xlabel(f"ToT, column X={x_max}", fontsize=11)
-    ax_x.tick_params(labelbottom=False)
-    ax_y.tick_params(labelleft=False)
-    ax_x.grid(alpha=.2)
-    ax_y.grid(alpha=.2)
-    ax_img.set_xlim(-0.5, 255.5)
-    cax = ax_info.inset_axes([0.08, 0.62, 0.84, 0.1])
-    fig.colorbar(im, cax=cax, orientation="horizontal", label="Summed ToT per pixel")
-    ax_info.text(0.0, 0.42,
-                 f"{ID}\n{len(tot):,} hits\npeak (hottest pixel) ({x_max}, {y_max})\n"
-                 f"= {100 * max_val / tot_sum if tot_sum else 0:.1f}% of total ToT\n"
-                 f"slices through the peak;\nbefore fit and background subtraction",
-                 transform=ax_info.transAxes, va="top", fontsize=11)
-    fig.suptitle(f"{ID}: integrated ToT with X and Y slices through the peak", fontsize=15, y=0.93)
-    fig.savefig(diag_folder+"/ToT-image-projections.png", bbox_inches="tight")
-    plt.close(fig)
+                 f"exposure (total_time): {total_time}\n"
+                 f"2D fit on map rebinned by: {REBIN}\n")
+    save_map_plots(perChipTOT, perChipHIT, 1)
+    if REBIN > 1:
+        np.save(diag_folder+f"/perChipTOT-rebin{REBIN}.npy", tot_fit_map)
+        save_map_plots(tot_fit_map, hit_fit_map, REBIN)
 except Exception as e:
     print(f"warning: could not save ToT diagnostics for {directory}: {e}")
 
@@ -239,13 +269,28 @@ initial_guess = (10E+3, x_max, y_max, 1.0, 1.0,0.,0.)#amp,xmean,ymean,xsig,ysig,
 
 twoD_Gaussian((yFit,xFit), *initial_guess).shape
 
+# --- Rebinning test (added): with REBIN > 1 the fit runs on the rebinned map
+# (in bin units); with REBIN = 1 this is exactly the original fit.
+yb_grid, xb_grid = np.indices(tot_fit_map.shape)
+xFitR, yFitR, dataFitR = xb_grid.ravel(), yb_grid.ravel(), tot_fit_map.ravel()
+yb_max, xb_max = np.unravel_index(np.argmax(tot_fit_map), tot_fit_map.shape)
+initial_guess_fit = (10E+3, xb_max, yb_max, 1.0, 1.0, 0., 0.) if REBIN > 1 else initial_guess
+
 try:
-    popt, pcov = opt.curve_fit(twoD_Gaussian, (yFit, xFit), dataFit, p0=initial_guess)
+    popt, pcov = opt.curve_fit(twoD_Gaussian, (yFitR, xFitR), dataFitR, p0=initial_guess_fit)
+    if REBIN > 1:
+        # bin units -> pixel units: centre f*c+(f-1)/2, widths *f, amplitude and
+        # offset per pixel instead of per f*f bin
+        scale = np.array([1 / REBIN**2, REBIN, REBIN, REBIN, REBIN, 1, 1 / REBIN**2])
+        popt = popt * scale + np.array([0, (REBIN - 1) / 2, (REBIN - 1) / 2, 0, 0, 0, 0])
+        pcov = pcov * np.outer(scale, scale)
 except Exception as e:
     # --- Diagnostics (added): record why the fit failed, then fail as before.
     with open(diag_folder+"/fit_failed.txt", "w") as fd:
         fd.write(f"2D Gaussian fit failed: {type(e).__name__}: {e}\n"
-                 f"initial guess (amp, x0, y0, sigma_x, sigma_y, theta, offset): {initial_guess}\n"
+                 f"fit on map rebinned by {REBIN}\n"
+                 f"initial guess (amp, x0, y0, sigma_x, sigma_y, theta, offset; in "
+                 f"{'bins' if REBIN > 1 else 'pixels'}): {initial_guess_fit}\n"
                  f"See ToT-image-raw.png and summary.txt in this folder.\n")
     print(f"{directory}: 2D Gaussian fit failed: {e} (see {diag_folder}/fit_failed.txt)")
     raise
@@ -268,6 +313,7 @@ with open(diag_folder+"/fit_parameters.txt", "w") as fd:
     for n, v, err in zip(fit_names, popt, perr):
         fd.write(f"{n:10s} {v:14.6g} +- {err:.3g}\n")
     fd.write("flags: " + ("; ".join(fit_flags) if fit_flags else "none") + "\n")
+    fd.write(f"fit on map rebinned by {REBIN}; parameters above are in original pixel units\n")
 if fit_flags:
     print(f"{directory}: 2D Gaussian fit looks suspicious: {'; '.join(fit_flags)} "
           f"(see {diag_folder}/fit_parameters.txt)")

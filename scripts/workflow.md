@@ -140,6 +140,7 @@ ones that failed) without rerunning the whole dataset.
 | `--runs LIST` | Runs to analyse, separated by commas or spaces. `3` = run number 3 from `--list`; `2-5` = numbers 2 to 5; `vr22-07` = a run name; `'vr22-1*'` = a name pattern (quote it); `all` = every run. Without `--runs`, the runs are listed and you are asked |
 | `--list` | Only list the runs with their numbers |
 | `--kind pressure\|voltage` | Marker type in the plots |
+| `--rebin N` | Test: merge N×N pixels (N = 2, 4, 8, 16) before the 2D Gaussian fit. The rebinned map and slices are printed too, and the fit result is converted back to pixel units, so the rest of the analysis is unchanged. Default 1 = no rebinning |
 | `--no-plot` | Skip the plots |
 
 What it does:
@@ -205,7 +206,11 @@ The `plot` section of the main [README](../README.md#plot) describes each file.
 | `xy_slices_before_fit.png` | X slice (pixel row through the peak) and Y slice (pixel column through the peak) as histograms, linear y, before any fit or background subtraction |
 
 Both are made before the 2D fit and the sideband fit, so they exist for every
-run, even ones that fail later. The slices are taken through the hottest pixel,
+run, even ones that fail later.
+
+With `--rebin 2` (rebinning test), each run also gets
+`2D_ToT_before_fit_rebin2.png` and `xy_slices_before_fit_rebin2.png`: the same
+plots after merging 2×2 pixels, i.e. the map the 2D fit then uses. The slices are taken through the hottest pixel,
 the only peak known before the 2D fit.
 
 Everything else stays in `optical/<run>/`:
@@ -268,6 +273,21 @@ After a `workflow.sh` run, check these files in this order:
 2. `plots/status.txt`: missing inputs, for example no `pulseheights.csv`.
 3. `plots/warnings.txt`: settings-ID mismatches and clipped error bars.
 4. `plots/comparisons/notes.csv`: excluded and provisional points.
+
+## Rebinning test
+
+To test fitting the 2D Gaussian on a coarser map, rebin before the fit:
+
+```bash
+./optical-analysis.sh <dataset_dir> <output_dir_1> --runs vr22-07              # as now
+./optical-analysis.sh <dataset_dir> <output_dir_2> --runs vr22-07 --rebin 2    # 2x2 rebinned
+```
+
+Use two different output folders to compare. In each run's
+`optical/<run>/diagnostics/fit_parameters.txt` the last line says which
+rebinning was used; the parameters are always in original pixel units, so the
+two can be compared directly. The 2D fit's starting point is the hottest
+rebinned bin. With `workflow.sh`, set `export WARTPC_REBIN=2` first instead.
 
 ## Running only optical or only charge
 
