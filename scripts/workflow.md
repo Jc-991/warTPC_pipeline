@@ -1,15 +1,23 @@
-# workflow.sh
+# unzip.sh and workflow.sh
 
-`workflow.sh` runs the whole analysis for one dataset ZIP uploaded to
-`/storage/phsccs_grp/transfer/`. It unzips the file, runs the optical and charge
-analyses, and makes the plots listed in `PLOT_GUIDE.md`.
+Two scripts take an uploaded dataset from `/storage/phsccs_grp/transfer/` to
+plots:
+
+1. **`unzip.sh`** unzips the ZIP into a data folder.
+2. **`workflow.sh`** analyses the unzipped folder: optical and/or charge, then
+   the plots listed in `PLOT_GUIDE.md`.
 
 ```bash
 cd scripts
-./workflow.sh example.zip output/path/to/directory
+./unzip.sh example.zip ~/warTPC/data                      # -> ~/warTPC/data/example/
+./workflow.sh ~/warTPC/data/example ~/warTPC/results      # -> ~/warTPC/results/example_results/
 ```
 
-`example.zip` stands for whatever ZIP you uploaded.
+`example.zip` stands for whatever ZIP you uploaded. Unzip once; after that,
+run `workflow.sh` on the folder as often as you like.
+
+Both scripts can be run from anywhere, e.g. `scripts/workflow.sh ...` from the
+repository folder. `workflow.sh` finds `build/` relative to its own location.
 
 ## Before the first run
 
@@ -21,79 +29,99 @@ cd scripts
    ```
    This creates `build/optical`, `build/charge` and `build/plot`, which the
    workflow calls.
-2. Make sure `blackbox/tpx3dump` is present. It is not in git, so either copy
-   it from the Blackbox folder or set `WARTPC_BLACKBOX` (see
-   [Environment variables](#environment-variables)).
+2. Make sure `blackbox/tpx3dump` is present. It is not in git, so copy it from
+   the original Blackbox folder:
+   ```bash
+   cp ~/warTPC/Blackbox/tpx3dump blackbox/
+   chmod +x blackbox/tpx3dump
+   ```
 3. Work inside a compute allocation, not on a login node. The analysis can take
    a long time.
 
-## Usage
+## unzip.sh
 
 ```
-./workflow.sh <file.zip> <output_dir> [--run optical|charge|both] [--kind pressure|voltage] [--no-plot]
+./unzip.sh <file.zip> <data_dir> [--force]
 ```
 
 | Argument / option | Meaning |
 |---|---|
-| `<file.zip>` | ZIP name in `/storage/phsccs_grp/transfer/`. The `.zip` can be left off. A full path to a ZIP elsewhere also works, and so does an already unzipped dataset folder (see [Data that is already unzipped](#data-that-is-already-unzipped)) |
-| `<output_dir>` | Where everything goes. Created if missing. The data is unzipped into `<output_dir>/<name>/` and results are written to `<output_dir>/<name>_results/`. Use scratch or project space with room for the data |
-| `--run optical\|charge\|both` | Which analysis to run. Default `both`. With `optical` or `charge`, a missing `optical/` or `charge/` folder in the ZIP counts as a failure; with `both`, a missing folder is just skipped |
-| `--kind pressure\|voltage` | Whether this is a pressure or a voltage dataset, which sets the plot markers. Default: guessed from the ZIP name (`pressure-pass-*`, `prp*`, `voltage-run-*`, `vr*`). If the guess fails, diamonds are used |
+| `<file.zip>` | ZIP name in `/storage/phsccs_grp/transfer/` (`.zip` can be left off), or a path to a ZIP anywhere |
+| `<data_dir>` | The dataset is unzipped to `<data_dir>/<name>/`, where `<name>` is the ZIP name without `.zip`. Use space with room for the data |
+| `--force` | Unzip again even if `<data_dir>/<name>/` exists. The old folder is replaced only after the new unzip succeeded |
+| `-h, --help` | Show help |
+
+| Step | Action | Stops with |
+|---|---|---|
+| 1 | For a bare ZIP name: checks that `/storage/phsccs_grp` and `transfer/` can be read | `no access to the data` |
+| 2 | Checks that the ZIP exists | `<name> does not exist` |
+| 3 | If `<data_dir>/<name>/` already holds the data, says so and stops (unless `--force`) | — (exit 0) |
+| 4 | Tests the ZIP and checks free space | `<name> is damaged or not a ZIP file`, `not enough space in ...` |
+| 5 | Unzips into a temporary folder, then moves the dataset to `<data_dir>/<name>/` | `has no optical/ or charge/ folder`, `contains more than one dataset folder` |
+
+Notes:
+- The dataset can be the top level of the ZIP or a single folder inside it.
+  Either way it ends up as `<data_dir>/<name>/`, named after the ZIP.
+- The `__MACOSX/` folder that ZIPs made on a Mac contain is removed.
+- A failed unzip leaves nothing behind.
+- The last line printed is always the dataset folder, ready for `workflow.sh`.
+- The script can't tell if a ZIP was re-uploaded with new contents. Use
+  `--force` to unzip it again.
+
+## workflow.sh
+
+```
+./workflow.sh <dataset_dir> <output_dir> [--run optical|charge|both] [--kind pressure|voltage] [--no-plot]
+```
+
+| Argument / option | Meaning |
+|---|---|
+| `<dataset_dir>` | Unzipped dataset folder, containing `optical/` and/or `charge/`. Usually made by `unzip.sh`, but any dataset folder works. It is only read, never changed |
+| `<output_dir>` | Results go to `<output_dir>/<name>_results/`, where `<name>` is the dataset folder's name. Created if missing |
+| `--run optical\|charge\|both` | Which analysis to run. Default `both`. With `optical` or `charge`, a missing `optical/` or `charge/` folder counts as a failure; with `both`, a missing folder is just skipped |
+| `--kind pressure\|voltage` | Whether this is a pressure or a voltage dataset, which sets the plot markers. Default: guessed from the dataset name (`pressure-pass-*`, `prp*`, `voltage-run-*`, `vr*`). If the guess fails, diamonds are used |
 | `--no-plot` | Skip the plotting step |
 | `-h, --help` | Show help |
 
-`<name>` is the ZIP name without `.zip`. It's also the dataset name in plot
-legends and comparisons, so a descriptive name such as `pressure-pass-06.zip`
-gives the clearest plots.
+`<name>` is also the dataset name in plot legends and comparisons, so a
+descriptive name such as `pressure-pass-06` gives the clearest plots.
 
-The script can be run from anywhere, e.g. `scripts/workflow.sh ...` from the
-repository folder. It finds `build/` relative to its own location.
+Giving a ZIP instead of a folder stops with
+`example.zip is not an unzipped folder; unzip it first: ...unzip.sh example.zip <data_dir>`.
 
 ### Examples
 
 ```bash
-# Run everything; output in /path/to/scratch/warTPC/example and example_results
-./workflow.sh example.zip /path/to/scratch/warTPC
+# Optical and charge, then plots
+./workflow.sh ~/warTPC/data/example ~/warTPC/results
 
-# The .zip can be left off; state that it is a pressure dataset
-./workflow.sh example /path/to/scratch/warTPC --kind pressure
+# State that it is a voltage dataset
+./workflow.sh ~/warTPC/data/example ~/warTPC/results --kind voltage
 
-# Analysis only, no plots
-./workflow.sh example.zip /path/to/scratch/warTPC --no-plot
+# Only optical, no plots
+./workflow.sh ~/warTPC/data/example ~/warTPC/results --run optical --no-plot
 
-# Only the charge analysis (e.g. to redo it after optical has already run)
-./workflow.sh example.zip /path/to/scratch/warTPC --run charge
+# Only charge (e.g. after optical has already run into the same results)
+./workflow.sh ~/warTPC/data/example ~/warTPC/results --run charge
 ```
 
-## What it does
+### What it does
 
 | Step | Action | Stops with |
 |---|---|---|
-| 0 | If the data is already unzipped, uses it and skips steps 1–3 | — |
-| 1 | Checks that `/storage/phsccs_grp` and `transfer/` can be read | `no access to the data` |
-| 2 | Checks that the ZIP exists in `transfer/` | `<name> does not exist` |
-| 3 | Tests the ZIP, checks free space, and unzips into `<output_dir>/<name>/` | `<name> is damaged or not a ZIP file`, `not enough space in ...`, `<name> has no optical/ or charge/ folder` |
-| 4 | Runs `optical`, then `charge` (or only the one chosen with `--run`), into `<output_dir>/<name>_results/` | Doesn't stop: failed runs are reported and the next step still runs |
-| 5 | Runs `plot` into `<output_dir>/<name>_results/plots/` (unless `--no-plot`) | Doesn't stop |
-
-Notes on step 3:
-- The dataset folder can be the top level of the ZIP, or a single folder
-  inside it. Either way it ends up as `<output_dir>/<name>/`, named after the
-  ZIP.
-- The `__MACOSX/` folder that ZIPs made on a Mac contain is removed.
-- Extraction happens in a temporary folder first, so a failed unzip leaves
-  nothing behind.
-- If `<output_dir>/<name>/` already exists, it is reused (step 0). Delete
-  that folder to force a fresh unzip.
-
-The original ZIP and the unzipped dataset are never modified. All analysis
-output goes to `<output_dir>/<name>_results/`.
+| 1 | Checks the dataset folder | `<dir> does not exist`, `<dir> has no optical/ or charge/ folder`, `... is not an unzipped folder` |
+| 2 | Checks that the needed commands are built | `.../build/optical not found` |
+| 3 | Creates `<output_dir>/<name>_results/` and starts the log | — |
+| 4 | Runs `optical`, then `charge` (or only the one chosen with `--run`) | Doesn't stop: failed runs are reported and the next step still runs |
+| 5 | Runs `plot` into `<name>_results/plots/` (unless `--no-plot`) | Doesn't stop |
 
 ## Output
 
 ```
+<data_dir>/
+└── <name>/                      unzipped dataset (from unzip.sh; never changed)
+
 <output_dir>/
-├── <name>/                      unzipped dataset (optical/, charge/)
 └── <name>_results/
     ├── optical/<run>/           Blackbox optical output per run (output.hdf5, integral.csv, plots,
     │                            diagnostics/ with the 2D map and projections from before the fit)
@@ -101,7 +129,7 @@ output goes to `<output_dir>/<name>_results/`.
     ├── charge/<run>/            Blackbox charge output per run (waveforms.root, signal.csv, plots)
     ├── charge/results/          signals.csv for all runs
     ├── logs/
-    │   ├── workflow_<timestamp>.log   everything this script printed (unzip, optical, charge, plot)
+    │   ├── workflow_<timestamp>.log   everything this script printed (optical, charge, plot)
     │   ├── optical_<timestamp>.log    whole optical step
     │   ├── charge_<timestamp>.log     whole charge step
     │   ├── optical/<run>.log          one data run, ending in "# result: OK" or "FAILED"
@@ -110,6 +138,10 @@ output goes to `<output_dir>/<name>_results/`.
     ├── charge_status.txt        runs that failed in charge
     └── plots/                   PLOT_GUIDE plots and tables (see below)
 ```
+
+The large raw files in `<name>_results/optical/<run>/` are links back to the
+dataset folder. **Keep the dataset folder** as long as you may rerun the
+analysis.
 
 `plots/` contains:
 - `run_conditions.md`: voltages, pressure, methane fraction, exposure and V/P
@@ -165,13 +197,13 @@ scp -r hammer:<path to>/<name>_results/plots/optical_per_run ~/Desktop/
 
 | Log | Contents | On re-run |
 |---|---|---|
-| `logs/workflow_<timestamp>.log` | Everything the script printed from the unzip step on, the same as the terminal | New file each time |
+| `logs/workflow_<timestamp>.log` | Everything `workflow.sh` printed, the same as the terminal | New file each time |
 | `logs/optical_<timestamp>.log`, `logs/charge_<timestamp>.log` | The whole optical / charge step, with a summary of failed runs at the end | New file each time |
 | `logs/optical/<run>.log`, `logs/charge/<run>.log` | One data run's output, ending in `# result: OK` or `# result: FAILED` | Rewritten |
 
-Errors from the first two checks (`no access to the data`, `<name> does not
-exist`) appear only in the terminal, because they stop the script before any
-output folder is created.
+Errors from the dataset-folder and build checks appear only in the terminal,
+because they stop the script before the results folder is created.
+`unzip.sh` prints to the terminal only.
 
 If you leave a long run going, you can follow it from another terminal:
 ```bash
@@ -180,46 +212,19 @@ tail -f <output_dir>/<name>_results/logs/workflow_*.log
 
 ## Exit status and checking the results
 
-- `0`: every step and every run succeeded.
-- `1`: something failed or is missing. The last line says
+For both scripts:
+- `0`: everything succeeded (for `unzip.sh`, also "already unzipped").
+- `1`: something failed or is missing. `workflow.sh`'s last line then says
   `Workflow finished with failures`.
-- `2`: wrong usage, for example a missing ZIP name or output folder.
+- `2`: wrong usage, for example a missing argument.
 
-After a run, check these files in this order:
+After a `workflow.sh` run, check these files in this order:
 1. `optical_status.txt` and `charge_status.txt`: which runs failed. Each
    failed run's own log, `logs/optical/<run>.log` or `logs/charge/<run>.log`,
    shows why.
 2. `plots/status.txt`: missing inputs, for example no `pulseheights.csv`.
 3. `plots/warnings.txt`: settings-ID mismatches and clipped error bars.
 4. `plots/comparisons/notes.csv`: excluded and provisional points.
-
-## Data that is already unzipped
-
-The script never unzips the same data twice. Before checking the storage or
-the ZIP, it looks for data that is already unzipped:
-
-1. **`<output_dir>/<name>/` from an earlier run.** Rerun the same command and
-   it goes straight to the analysis:
-   ```bash
-   ./workflow.sh example.zip /path/to/scratch/warTPC --run charge
-   ```
-2. **A dataset folder given directly** instead of a ZIP name (any folder with
-   `optical/` and/or `charge/`). It is used where it is, not copied, and
-   results go to `<output_dir>/<folder name>_results/`:
-   ```bash
-   ./workflow.sh ~/warTPC/pressure-pass-05 /path/to/scratch/warTPC
-   ```
-
-In both cases the storage-access check, the ZIP check and the unzip are
-skipped, so this works even if the ZIP has been removed from `transfer/` or
-the storage isn't mounted. The workflow log shows
-`Already unzipped, using the data in ...`.
-
-The script doesn't notice if a ZIP was re-uploaded with new contents. To
-unzip again, delete `<output_dir>/<name>/` first.
-
-If `<output_dir>/<name>/` exists but has no `optical/` or `charge/` folder, the
-script stops rather than overwrite it.
 
 ## Running only optical or only charge
 
@@ -233,37 +238,32 @@ from whatever is in the results folder, so:
 
 ## Re-running
 
-- **Same ZIP, same `<output_dir>`:** the dataset is reused. Optical and charge
-  overwrite their earlier results, and the plots are remade.
+- **Same dataset folder, same `<output_dir>`:** optical and charge overwrite
+  their earlier results, and the plots are remade. Nothing is unzipped.
 - **To keep earlier results,** use a different `<output_dir>`.
 - **To compare with an earlier pass,** run `build/plot` yourself with
   `--compare <earlier results>/plots`.
 
 ## Environment variables
 
-| Variable | Default | Use |
-|---|---|---|
-| `WARTPC_STORAGE` | `/storage/phsccs_grp` | Group storage to check |
-| `WARTPC_TRANSFER` | `$WARTPC_STORAGE/transfer` | Folder holding uploaded ZIPs |
-| `WARTPC_BUILD` | `<repo>/build` | Where `optical`, `charge` and `plot` are |
-| `WARTPC_BLACKBOX` | `<repo>/blackbox` | Blackbox scripts and `tpx3dump` to use, e.g. `~/warTPC/Blackbox` |
-| `BLACKBOX_SETUP` | bundled `setup_blackbox.sh` | Environment script that loads the Python/ROOT modules |
-| `WARTPC_PYTHON` | `python3` | Python used by `plot` |
-
-For example:
-
-```bash
-WARTPC_BLACKBOX=~/warTPC/Blackbox ./workflow.sh example.zip /path/to/scratch/warTPC
-```
+| Variable | Default | Used by | Use |
+|---|---|---|---|
+| `WARTPC_STORAGE` | `/storage/phsccs_grp` | `unzip.sh` | Group storage to check |
+| `WARTPC_TRANSFER` | `$WARTPC_STORAGE/transfer` | `unzip.sh` | Folder holding uploaded ZIPs |
+| `WARTPC_BUILD` | `<repo>/build` | `workflow.sh` | Where `optical`, `charge` and `plot` are |
+| `WARTPC_BLACKBOX` | `<repo>/blackbox` | `workflow.sh` | Other Blackbox scripts and tools to use. The folder must contain `optical_run.sh` / `charge_run.sh` next to the tools, so the original `~/warTPC/Blackbox` does not work here |
+| `BLACKBOX_SETUP` | bundled `setup_blackbox.sh` | `workflow.sh` | Environment script that loads the Python/ROOT modules |
+| `WARTPC_PYTHON` | `python3` | `workflow.sh` | Python used by `plot` |
 
 ## Common problems
 
-| Message | What to do |
-|---|---|
-| `no access to the data` | You're not in the group that owns `/storage/phsccs_grp`, or the storage isn't mounted on this node. Check with `ls /storage/phsccs_grp/transfer` and `groups` |
-| `<name> does not exist` | Check the spelling with `ls /storage/phsccs_grp/transfer`, and check that the upload has finished |
-| `.../build/optical not found` | Build the project (see [Before the first run](#before-the-first-run)) |
-| `not enough space in ...` | Choose an `<output_dir>` on scratch or project space |
-| `has no optical/ or charge/ folder` | The ZIP has a different layout. It needs `optical/<run>/` and/or `charge/<run>/`, either at the top or inside one folder |
-| `contains more than one dataset folder` | Upload each dataset as its own ZIP |
-| `charge requested, but <name> has no charge/ folder` (or `optical`) | The ZIP has no data for the analysis chosen with `--run`. Check the ZIP contents, or use `--run both` |
+| Message | Script | What to do |
+|---|---|---|
+| `no access to the data` | unzip | You're not in the group that owns `/storage/phsccs_grp`, or the storage isn't mounted on this node. Check with `ls /storage/phsccs_grp/transfer` and `groups` |
+| `<name> does not exist` | unzip | Check the spelling with `ls /storage/phsccs_grp/transfer`, and check that the upload has finished |
+| `not enough space in ...` | unzip | Choose a `<data_dir>` on scratch or project space |
+| `has no optical/ or charge/ folder` | both | The ZIP or folder has a different layout. It needs `optical/<run>/` and/or `charge/<run>/` |
+| `contains more than one dataset folder` | unzip | Upload each dataset as its own ZIP |
+| `... is not an unzipped folder; unzip it first` | workflow | You gave `workflow.sh` a ZIP. Run `unzip.sh` first and give `workflow.sh` the folder it prints |
+| `.../build/optical not found` | workflow | Build the project (see [Before the first run](#before-the-first-run)) |
+| `charge requested, but <name> has no charge/ folder` (or `optical`) | workflow | The dataset has no data for the analysis chosen with `--run`. Check its contents, or use `--run both` |

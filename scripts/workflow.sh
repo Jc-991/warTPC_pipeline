@@ -1,28 +1,26 @@
 #!/usr/bin/env bash
-# ./workflow.sh example.zip output/path/to/directory [--run optical|charge|both]
-#                [--kind pressure|voltage] [--no-plot]
-
-
+# ./workflow.sh path/to/unzipped/dataset output/path/to/directory
+#               [--run optical|charge|both] [--kind pressure|voltage] [--no-plot]
+#
+# Analyses an already unzipped dataset. To unzip an uploaded ZIP first:
+#   ./unzip.sh example.zip path/to/data     -> path/to/data/example/
 
 set -uo pipefail
 
-STORAGE="${WARTPC_STORAGE:-/storage/phsccs_grp}"
-TRANSFER="${WARTPC_TRANSFER:-$STORAGE/transfer}"
 REPO=$(cd -- "$(dirname -- "$0")/.." && pwd)
 BUILD="${WARTPC_BUILD:-$REPO/build}"
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") <file.zip> <output_dir> [--run optical|charge|both]
+Usage: $(basename "$0") <dataset_dir> <output_dir> [--run optical|charge|both]
                          [--kind pressure|voltage] [--no-plot]
 
-  <file.zip>      ZIP name in $TRANSFER (or a path to a ZIP), or an
-                  already unzipped dataset folder (with optical/ and/or charge/)
-  <output_dir>    where everything goes: <output_dir>/<name>/ (unzipped data)
-                  and <output_dir>/<name>_results/ (analysis and plots)
+  <dataset_dir>   unzipped dataset folder (with optical/ and/or charge/);
+                  use unzip.sh first to unzip an uploaded ZIP
+  <output_dir>    results go to <output_dir>/<name>_results/ (analysis and plots)
   --run WHAT      which analysis to run: optical, charge or both (default: both)
   --kind K        pressure or voltage: marker type in the plots (default: guessed
-                  from the ZIP name, e.g. pressure-pass-06.zip or prp*.zip)
+                  from the dataset name, e.g. pressure-pass-06 or prp*)
   --no-plot       skip the PLOT_GUIDE plots (made in <name>_results/plots)
   -h, --help      show this help
 EOF
@@ -54,40 +52,18 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$name" && -n "$outdir" ]] || { usage >&2; exit 2; }
 
-# 0. Already unzipped? Then use that data directly and skip steps 1-3
-#    (storage access, ZIP check, unzip). Either:
-#    - <file.zip> is itself an unzipped dataset folder, or
-#    - <output_dir>/<name>/ exists from an earlier run of this script.
-is_dataset() { [[ -d "$1/optical" || -d "$1/charge" ]]; }
-stem=$(basename "${name%/}")
-stem="${stem%.zip}"
-reuse=""
-if [[ -d "$name" ]] && is_dataset "$name"; then
-  reuse=$(cd "$name" && pwd)
-elif [[ -d "$outdir/$stem" ]] && is_dataset "$outdir/$stem"; then
-  reuse=$(cd "$outdir/$stem" && pwd)
-fi
-
-if [[ -z "$reuse" ]]; then
-  # 1. Access to the group storage
-  if [[ ! -d "$STORAGE" || ! -r "$STORAGE" || ! -x "$STORAGE" ]]; then
-    die "no access to the data"
+# 1. The dataset folder
+if [[ ! -d "$name" ]]; then
+  if [[ "$name" == *.zip || -f "$name" ]]; then
+    die "$name is not an unzipped folder; unzip it first: $(dirname "$0")/unzip.sh $(basename "$name") <data_dir>"
   fi
-  if [[ ! -d "$TRANSFER" || ! -r "$TRANSFER" || ! -x "$TRANSFER" ]]; then
-    die "no access to the data ($TRANSFER is not readable)"
-  fi
-
-  # 2. The ZIP itself
-  if [[ "$name" == */* ]]; then zip="$name"; else zip="$TRANSFER/$name"; fi
-  [[ -f "$zip" || "$zip" == *.zip || ! -f "$zip.zip" ]] || zip="$zip.zip"
-  [[ -f "$zip" ]] || die "$(basename "$zip") does not exist"
-  [[ -r "$zip" ]] || die "no access to the data ($(basename "$zip") is not readable)"
-  command -v unzip >/dev/null || die "unzip is not installed"
-else
-  zip="(not needed: data already unzipped)"
+  die "$name does not exist"
 fi
+[[ -d "$name/optical" || -d "$name/charge" ]] || die "$name has no optical/ or charge/ folder"
+dataset=$(cd "$name" && pwd)
+stem=$(basename "$dataset")
 
-# Tools needed below
+# 2. Tools needed below
 case "$run_what" in
   optical) steps=(optical) ;;
   charge)  steps=(charge) ;;
@@ -98,15 +74,12 @@ for tool in "${steps[@]}"; do
 done
 [[ $do_plot -eq 0 || -x "$BUILD/plot" ]] || die "$BUILD/plot not found; rebuild the project"
 
-# 3. Unzip into <output_dir>/<name>
+# 3. Results folder and log
 mkdir -p "$outdir" || die "cannot create $outdir"
 outdir=$(cd "$outdir" && pwd)
-dataset="${reuse:-$outdir/$stem}"
 results="$outdir/${stem}_results"
 
 # From here on, everything printed also goes to <results>/logs/workflow_*.log.
-# (Earlier messages are only the access/file checks, which stop before any
-# output folder is created.)
 mkdir -p "$results/logs" || die "cannot create $results/logs"
 log="$results/logs/workflow_$(date +%Y%m%d-%H%M%S).log"
 exec 3>&1 4>&2
@@ -114,47 +87,9 @@ exec > >(tee -a "$log") 2>&1
 tee_pid=${!:-}
 echo "# workflow started $(date '+%Y-%m-%d %H:%M:%S') on $(hostname)"
 echo "# command: $cmdline"
-echo "# zip:     $zip"
+echo "# dataset: $dataset"
 echo "# run:     ${steps[*]}"
 echo "# log:     $log"
-echo
-
-if [[ -n "$reuse" ]]; then
-  echo "Already unzipped, using the data in $dataset (no unzip, no ZIP check)"
-elif [[ -e "$dataset" ]]; then
-  die "$dataset exists but has no optical/ or charge/ folder; move or delete it, then rerun"
-else
-  echo "Checking $zip"
-  unzip -tq "$zip" >/dev/null || die "$(basename "$zip") is damaged or not a ZIP file"
-  need=$(unzip -Zt "$zip" | awk '{print $3}')
-  avail=$(df -Pk "$outdir" | awk 'NR==2 {print $4 * 1024}')
-  if [[ -n "$need" && -n "$avail" ]] && (( need > avail )); then
-    die "not enough space in $outdir: need $((need / 1048576)) MiB, have $((avail / 1048576)) MiB"
-  fi
-
-  tmp=$(mktemp -d "$outdir/.unzip_${stem}.XXXXXX") || die "cannot write to $outdir"
-  trap 'rm -rf "$tmp"' EXIT
-  echo "Extracting to $dataset"
-  unzip -q "$zip" -d "$tmp" || die "extracting $(basename "$zip") failed"
-  rm -rf "$tmp/__MACOSX"   # resource-fork folder added by macOS's zip
-
-  # The dataset folder holds optical/ and/or charge/; it may be the ZIP's top
-  # level or a single folder inside it.
-  root=""
-  if [[ -d "$tmp/optical" || -d "$tmp/charge" ]]; then
-    root="$tmp"
-  else
-    for d in "$tmp"/*/; do
-      [[ -d "$d/optical" || -d "$d/charge" ]] || continue
-      [[ -z "$root" ]] || die "$(basename "$zip") contains more than one dataset folder"
-      root="${d%/}"
-    done
-  fi
-  [[ -n "$root" ]] || die "$(basename "$zip") has no optical/ or charge/ folder"
-  mv "$root" "$dataset" || die "cannot move the extracted data to $dataset"
-  rm -rf "$tmp"
-  trap - EXIT
-fi
 
 # 4. Analysis
 echo
@@ -181,11 +116,11 @@ done
 #    runs that failed above show up as missing in plots/status.txt.
 if [[ $do_plot -eq 1 ]]; then
   echo; echo "=== plot ==="
-  if [[ -d "$results" ]]; then
+  if [[ -d "$results/optical" || -d "$results/charge" ]]; then
     "$BUILD/plot" -i "$results" -o "$results/plots" --dataset "$stem" ${kind:+--kind "$kind"} \
       || { status=1; echo "plot failed"; }
   else
-    status=1; echo "plot skipped: no results in $results"
+    status=1; echo "plot skipped: no analysis results in $results"
   fi
 fi
 
@@ -201,5 +136,3 @@ echo "Log: $log"
 exec 1>&3 2>&4 3>&- 4>&-
 [[ -n "$tee_pid" ]] && wait "$tee_pid" 2>/dev/null
 exit $status
-
-
