@@ -77,6 +77,7 @@ troubleshooting are in [scripts/workflow.md](scripts/workflow.md).
 cd scripts
 ./workflow.sh example.zip output/path/to/directory              # unzip, optical, charge, plots
 ./workflow.sh example.zip output/path/to/directory --no-plot    # same without the plots
+./workflow.sh example.zip output/path/to/directory --run charge # only charge (or --run optical)
 ```
 
 1. Checks that `/storage/phsccs_grp` and its `transfer/` folder can be read.
@@ -86,6 +87,9 @@ cd scripts
 3. Unzips it into `<output_dir>/<name>/`.
 4. Runs `optical` and `charge` into `<output_dir>/<name>_results/`.
 5. Runs `plot` into `<output_dir>/<name>_results/plots/` (see [plot](#plot)).
+
+Everything the workflow prints, from the unzip step on, is also saved to
+`<output_dir>/<name>_results/logs/workflow_<timestamp>.log`.
 
 `<name>` is the ZIP name without `.zip`, and it's used as the dataset name in
 plots. Add `--kind pressure` or `--kind voltage` if the name doesn't start with
@@ -140,8 +144,12 @@ build/charge  -i path/to/directory/pressure-pass-05 -o path/to/directory/results
      data.
 2. **Runs the unchanged script** on the mirror, from a private working folder
    (`<output>/.blackbox/`).
-3. **Logs everything.** Output appears in the terminal and is saved to
-   `<output>/logs/<mode>_<timestamp>.log`.
+3. **Logs everything.** Output appears in the terminal and is saved twice:
+   - `<output>/logs/<mode>_<timestamp>.log` holds the whole invocation. A new
+     file is made each time, so earlier logs are kept.
+   - `<output>/logs/<mode>/<run>.log` holds one data run, ending with
+     `# result: OK` or `# result: FAILED`. These are rewritten on each
+     invocation.
 4. **Checks each run.** The scripts' own exit code isn't reliable, so a run
    counts as done only if it produced `integral.csv` (optical) or `signal.csv`
    (charge). Failed runs are listed at the end and in
@@ -152,11 +160,13 @@ build/charge  -i path/to/directory/pressure-pass-05 -o path/to/directory/results
 
 ```
 <output>/
-├── optical/<run>/        output.hdf5, integral.csv, signal-integral_x|y/ plots
+├── optical/<run>/        output.hdf5, integral.csv, signal-integral_x|y/ plots,
+│                         diagnostics/ (ToT map before the 2D fit, fit result or error)
 ├── optical/results/      signals.csv, signals_inspect.csv (one row per run)
 ├── charge/<run>/         waveforms.root, signal.csv, p1/, cut folders
 ├── charge/results/       signals.csv, signals_inspect.csv
-├── logs/                 one log per invocation
+├── logs/                 <mode>_<timestamp>.log per invocation,
+│                         <mode>/<run>.log per data run
 ├── optical_status.txt
 └── charge_status.txt
 ```
@@ -202,7 +212,8 @@ Set `WARTPC_PYTHON` to choose the Python interpreter (default `python3`).
 <plot_dir>/
 ├── run_conditions.csv/.md   V0–V4, pressure, methane fraction, exposure, V43+21/P, ID mismatches
 ├── results.csv              S_O, RMS, V50, width, event counts, ratio, review flags per run
-├── optical_per_run/<run>/   ToT image, x/y projections, combined integral distribution
+├── optical_per_run/<run>/   ToT image, x/y projections, combined integral distribution,
+│                            plus 2D_ToT_before_fit.png and fit_parameters.txt / fit_failed.txt
 ├── v50_distributions/       one histogram per run, with peak estimate, bin width and counts
 ├── summary_plots/           optical and V50: streaming + physics, linear + log;
 │                            ratio: streaming + physics, linear
@@ -226,6 +237,25 @@ by appending its rows from `results.csv` to `reference/history.csv`.
 
 V50 uses the same peak finder as `run_analysis`, so values are comparable with
 `history.csv`.
+
+### Why did an optical run fail?
+
+`blackbox/optical-analysis.py` saves diagnostics in `optical/<run>/diagnostics/`
+**before** the 2D Gaussian fit, so they exist even when the run fails later.
+These copies are made by this project's `blackbox/` version only, not by the
+original Blackbox.
+
+| File | Contents |
+|---|---|
+| `ToT-image-raw.png` | The integrated ToT map on linear and log colour scales; `+` marks the hottest pixel, where the fit starts |
+| `summary.txt` | Hits, pixels hit, total ToT, and the hottest pixel's share of the total (a large share means a hot pixel) |
+| `perChipTOT.npy`, `perChipHIT.npy` | The 256×256 ToT and hit-count maps, for `np.load` |
+| `fit_parameters.txt` | Fit result with uncertainties, plus flags: non-finite values, centre off the chip, width under half a pixel or over half the chip |
+| `fit_failed.txt` | The fit's error message and starting values, if it failed |
+| `no_hits.txt` | Written if the HDF5 file has no pixel hits |
+
+`plot` copies the image and the text files into `optical_per_run/<run>/` and
+lists the failure reasons in `status.txt`.
 
 ## run_analysis (full pipeline)
 

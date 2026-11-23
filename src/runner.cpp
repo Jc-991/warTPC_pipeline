@@ -10,6 +10,7 @@
 // WARTPC_MODE ("charge" or "optical") is set per executable by CMake.
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -263,11 +264,37 @@ int main(int argc, char** argv) {
         const auto t0 = std::chrono::steady_clock::now();
         FILE* pipe = popen(cmd.c_str(), "r");
         if (!pipe) { std::cerr << m.name << ": failed to start bash\n"; return 1; }
+        // Per-run logs: the scripts print "Processing: <run>" before each run,
+        // so everything from that line to the next goes to logs/<mode>/<run>.log.
+        // Rewritten on every invocation; the timestamped log keeps the history.
+        const fs::path run_logs = output / "logs" / m.name;
+        fs::remove_all(run_logs);
+        fs::create_directories(run_logs);
+        const std::string marker_text = "Processing: ";
+        std::ofstream run_log;
+        std::set<std::string> seen;
+        bool at_line_start = true;
         char buf[4096];
         while (std::fgets(buf, sizeof buf, pipe)) {
-            std::cout << buf << std::flush;
-            log << buf << std::flush;
+            const std::string line(buf);
+            if (at_line_start && line.rfind(marker_text, 0) == 0) {
+                std::string r = line.substr(marker_text.size());
+                while (!r.empty() && std::isspace(static_cast<unsigned char>(r.back()))) r.pop_back();
+                if (!r.empty() && r != "." && r != ".." && r.find('/') == std::string::npos) {
+                    run_log.close();
+                    run_log.open(run_logs / (r + ".log"));
+                    run_log << "# " << m.name << " " << r << " started "
+                            << timestamp("%Y-%m-%d %H:%M:%S") << "\n"
+                            << "# full log: " << log_path.string() << "\n";
+                    seen.insert(r);
+                }
+            }
+            std::cout << line << std::flush;
+            log << line << std::flush;
+            if (run_log.is_open()) run_log << line << std::flush;
+            at_line_start = !line.empty() && line.back() == '\n';
         }
+        run_log.close();
         const int status = pclose(pipe);
         const int script_rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
         const long secs = std::chrono::duration_cast<std::chrono::seconds>(
@@ -283,7 +310,22 @@ int main(int argc, char** argv) {
         summary << "\n# finished in " << secs << " s (script exit code " << script_rc << ")\n"
                 << "# completed " << runs.size() - failed.size() << "/" << runs.size() << " runs\n";
         for (const auto& r : failed)
-            summary << "# FAILED " << r << ": no " << m.data_subdir << "/" << r << "/" << m.done_marker << "\n";
+            summary << "# FAILED " << r << ": no " << m.data_subdir << "/" << r << "/" << m.done_marker
+                    << " (log: logs/" << m.name << "/" << r << ".log)\n";
+
+        // Close each run's log with its result.
+        const std::set<std::string> failed_set(failed.begin(), failed.end());
+        for (const auto& r : runs) {
+            std::ofstream rl(run_logs / (r + ".log"), std::ios::app);
+            if (!seen.count(r))
+                rl << "# " << m.name << " " << r << ": not processed by " << m.script
+                   << (m.name == "charge" ? " (it only processes runs that have an optical/<run> folder)" : "")
+                   << "\n";
+            if (failed_set.count(r))
+                rl << "# result: FAILED (no " << m.data_subdir << "/" << r << "/" << m.done_marker << ")\n";
+            else
+                rl << "# result: OK\n";
+        }
         summary << "# results: " << (output / m.data_subdir / "results").string() << "\n"
                 << "# log:     " << log_path.string() << "\n";
         std::cout << summary.str();

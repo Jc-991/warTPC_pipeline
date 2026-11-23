@@ -34,6 +34,15 @@ OPTICAL_IMAGES = {
     'signal-integral_y/2nd_degree/4to8/4to8_signal.png': 'y_projection_signal.png',
     'Total-Stacked-signal-integral.png': 'combined_integral_distribution.png',
 }
+# Written by optical-analysis.py before the 2D fit, so present even for failed
+# runs. Optional: older Blackbox versions do not write them.
+OPTICAL_DIAGNOSTICS = {
+    'diagnostics/ToT-image-raw.png': '2D_ToT_before_fit.png',
+    'diagnostics/summary.txt': 'ToT_summary.txt',
+    'diagnostics/fit_parameters.txt': 'fit_parameters.txt',
+    'diagnostics/fit_failed.txt': 'fit_failed.txt',
+    'diagnostics/no_hits.txt': 'no_hits.txt',
+}
 
 YLABEL = {'optical': r'$S_O^{\mathrm{norm}}$ (ms s$^{-1}$)',
           'v50': r'$V_{50}$ peak estimate (mV)',
@@ -209,10 +218,12 @@ def analyse_runs(src, out, rms_limit, warnings, issues):
             except Exception as e:
                 issues.append(f'{run}: optical integral.csv: {e}')
                 oflags.append('unreadable integral.csv')
-        elif opt.is_dir():
+        elif opt.is_dir() and any(opt.iterdir()):
+            # (An empty optical/<run>/ is only the folder `charge` creates for
+            # charge_run.sh's run list; optical was not run, so nothing to report.)
             issues.append(f'{run}: no optical/{run}/integral.csv (optical analysis not run or failed)')
             oflags.append('no optical result')
-        if opt.is_dir():
+        if opt.is_dir() and any(opt.iterdir()):
             dst = out / 'optical_per_run' / run
             dst.mkdir(parents=True, exist_ok=True)
             for rel, name in OPTICAL_IMAGES.items():
@@ -220,6 +231,13 @@ def analyse_runs(src, out, rms_limit, warnings, issues):
                     shutil.copy2(opt / rel, dst / name)
                 elif ic.is_file():
                     issues.append(f'{run}: missing optical image {rel}')
+            for rel, name in OPTICAL_DIAGNOSTICS.items():
+                if (opt / rel).is_file():
+                    shutil.copy2(opt / rel, dst / name)
+            for name in ('fit_failed.txt', 'no_hits.txt'):
+                if (dst / name).is_file():
+                    reason = (dst / name).read_text().splitlines()[0]
+                    issues.append(f'{run}: {reason} (see optical_per_run/{run}/)')
         r['optical_flags'] = '; '.join(oflags)
 
         # Charge: V50 from pulseheights.csv

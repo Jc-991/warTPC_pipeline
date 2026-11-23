@@ -5,3 +5,4 @@ __pycache__/
 blackbox/tpx3dump
 blackbox/tpx3dump.d
 .cache/
+scripts/workflow_jinxi.sh

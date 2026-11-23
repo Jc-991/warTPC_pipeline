@@ -54,6 +54,16 @@ toa = f["PixelHits"]["toa"][::step]
 x = f["PixelHits"]["x"][::step]
 y = f["PixelHits"]["y"][::step]
 
+# --- Diagnostics (added): everything needed to see why a run fails is saved in
+# <run>/diagnostics/, before the steps that can fail.
+diag_folder = path+"/"+directory+"/diagnostics"
+os.makedirs(diag_folder, exist_ok=True)
+if len(toa) == 0:
+    with open(diag_folder+"/no_hits.txt", "w") as fd:
+        fd.write(f"{input_file_name} contains no pixel hits; nothing to analyse.\n")
+    print(f"{directory}: no pixel hits in {data} (see {diag_folder}/no_hits.txt)")
+    sys.exit(1)
+
 time=toa[len(toa)-1]-toa[0]
 
 time=time/1E13
@@ -85,6 +95,43 @@ np.add.at(perChipHIT, (y, x), 1)
 
 total_time=time-time_cut
 
+# --- Diagnostics (added): save the integrated ToT map BEFORE the 2D Gaussian fit,
+# so runs that fail in the fit or later still leave the map to inspect.
+# A failure here only prints a warning; it never stops the analysis.
+try:
+    from matplotlib.colors import LogNorm
+    np.save(diag_folder+"/perChipTOT.npy", perChipTOT)
+    np.save(diag_folder+"/perChipHIT.npy", perChipHIT)
+    tot_sum = int(perChipTOT.sum())
+    max_val = int(perChipTOT[y_max, x_max])
+    with open(diag_folder+"/summary.txt", "w") as fd:
+        fd.write(f"run: {directory} (settings ID {ID})\n"
+                 f"hits: {len(tot)}\n"
+                 f"pixels with hits: {int((perChipHIT > 0).sum())} of 65536\n"
+                 f"total ToT: {tot_sum}\n"
+                 f"hottest pixel (x, y): ({x_max}, {y_max}), ToT {max_val}"
+                 f" = {100 * max_val / tot_sum if tot_sum else 0:.2f}% of total\n"
+                 f"exposure (total_time): {total_time}\n")
+    fig, axs = plt.subplots(1, 2, figsize=(20, 9))
+    for ax, scale in zip(axs, ("linear", "log")):
+        if scale == "log" and (perChipTOT > 0).any():
+            im = ax.imshow(np.ma.masked_less_equal(perChipTOT, 0), norm=LogNorm())
+        else:
+            im = ax.imshow(perChipTOT)
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Summed ToT")
+        ax.plot(x_max, y_max, "r+", ms=16, mew=2)   # hottest pixel = fit starting point
+        ax.set_xlabel("X Pixel", fontsize=14)
+        ax.set_ylabel("Y Pixel", fontsize=14)
+        ax.set_title(f"{scale} colour scale (+ = hottest pixel, fit start)", fontsize=14)
+    fig.suptitle(f"{ID}: integrated ToT before the 2D Gaussian fit - {len(tot):,} hits, "
+                 f"hottest pixel ({x_max}, {y_max}) holds "
+                 f"{100 * max_val / tot_sum if tot_sum else 0:.1f}% of total ToT", fontsize=15)
+    fig.tight_layout()
+    fig.savefig(diag_folder+"/ToT-image-raw.png")
+    plt.close(fig)
+except Exception as e:
+    print(f"warning: could not save ToT diagnostics for {directory}: {e}")
+
 ###get the 1 sigma range of the y value of the fit
 
 def twoD_Gaussian(xy, amplitude, xo, yo, sigma_x, sigma_y, theta, offset):
@@ -114,7 +161,38 @@ initial_guess = (10E+3, x_max, y_max, 1.0, 1.0,0.,0.)#amp,xmean,ymean,xsig,ysig,
 
 twoD_Gaussian((yFit,xFit), *initial_guess).shape
 
-popt, pcov = opt.curve_fit(twoD_Gaussian, (yFit, xFit), dataFit, p0=initial_guess)
+try:
+    popt, pcov = opt.curve_fit(twoD_Gaussian, (yFit, xFit), dataFit, p0=initial_guess)
+except Exception as e:
+    # --- Diagnostics (added): record why the fit failed, then fail as before.
+    with open(diag_folder+"/fit_failed.txt", "w") as fd:
+        fd.write(f"2D Gaussian fit failed: {type(e).__name__}: {e}\n"
+                 f"initial guess (amp, x0, y0, sigma_x, sigma_y, theta, offset): {initial_guess}\n"
+                 f"See ToT-image-raw.png and summary.txt in this folder.\n")
+    print(f"{directory}: 2D Gaussian fit failed: {e} (see {diag_folder}/fit_failed.txt)")
+    raise
+
+# --- Diagnostics (added): record the fit result; flag values that make the
+# later signal/sideband regions meaningless.
+with np.errstate(invalid="ignore"):
+    perr = np.sqrt(np.diag(pcov))
+fit_names = ["amplitude", "x0", "y0", "sigma_x", "sigma_y", "theta", "offset"]
+fit_flags = []
+if not np.all(np.isfinite(popt)) or not np.all(np.isfinite(perr)):
+    fit_flags.append("non-finite parameter or uncertainty")
+if not (0 <= popt[1] < 256 and 0 <= popt[2] < 256):
+    fit_flags.append("centre outside the 256x256 chip")
+if abs(popt[3]) < 0.5 or abs(popt[4]) < 0.5:
+    fit_flags.append("width below half a pixel (fit may have locked onto a hot pixel)")
+if abs(popt[3]) > 128 or abs(popt[4]) > 128:
+    fit_flags.append("width larger than half the chip")
+with open(diag_folder+"/fit_parameters.txt", "w") as fd:
+    for n, v, err in zip(fit_names, popt, perr):
+        fd.write(f"{n:10s} {v:14.6g} +- {err:.3g}\n")
+    fd.write("flags: " + ("; ".join(fit_flags) if fit_flags else "none") + "\n")
+if fit_flags:
+    print(f"{directory}: 2D Gaussian fit looks suspicious: {'; '.join(fit_flags)} "
+          f"(see {diag_folder}/fit_parameters.txt)")
 
 
 ymean= popt[2]

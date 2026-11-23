@@ -30,13 +30,14 @@ cd scripts
 ## Usage
 
 ```
-./workflow.sh <file.zip> <output_dir> [--kind pressure|voltage] [--no-plot]
+./workflow.sh <file.zip> <output_dir> [--run optical|charge|both] [--kind pressure|voltage] [--no-plot]
 ```
 
 | Argument / option | Meaning |
 |---|---|
 | `<file.zip>` | ZIP name in `/storage/phsccs_grp/transfer/`. The `.zip` can be left off. A full path to a ZIP elsewhere also works |
 | `<output_dir>` | Where everything goes. Created if missing. The data is unzipped into `<output_dir>/<name>/` and results are written to `<output_dir>/<name>_results/`. Use scratch or project space with room for the data |
+| `--run optical\|charge\|both` | Which analysis to run. Default `both`. With `optical` or `charge`, a missing `optical/` or `charge/` folder in the ZIP counts as a failure; with `both`, a missing folder is just skipped |
 | `--kind pressure\|voltage` | Whether this is a pressure or a voltage dataset, which sets the plot markers. Default: guessed from the ZIP name (`pressure-pass-*`, `prp*`, `voltage-run-*`, `vr*`). If the guess fails, diamonds are used |
 | `--no-plot` | Skip the plotting step |
 | `-h, --help` | Show help |
@@ -59,6 +60,9 @@ repository folder. It finds `build/` relative to its own location.
 
 # Analysis only, no plots
 ./workflow.sh example.zip /path/to/scratch/warTPC --no-plot
+
+# Only the charge analysis (e.g. to redo it after optical has already run)
+./workflow.sh example.zip /path/to/scratch/warTPC --run charge
 ```
 
 ## What it does
@@ -68,7 +72,7 @@ repository folder. It finds `build/` relative to its own location.
 | 1 | Checks that `/storage/phsccs_grp` and `transfer/` can be read | `no access to the data` |
 | 2 | Checks that the ZIP exists in `transfer/` | `<name> does not exist` |
 | 3 | Tests the ZIP, checks free space, and unzips into `<output_dir>/<name>/` | `<name> is damaged or not a ZIP file`, `not enough space in ...`, `<name> has no optical/ or charge/ folder` |
-| 4 | Runs `optical`, then `charge`, into `<output_dir>/<name>_results/` | Doesn't stop: failed runs are reported and the next step still runs |
+| 4 | Runs `optical`, then `charge` (or only the one chosen with `--run`), into `<output_dir>/<name>_results/` | Doesn't stop: failed runs are reported and the next step still runs |
 | 5 | Runs `plot` into `<output_dir>/<name>_results/plots/` (unless `--no-plot`) | Doesn't stop |
 
 Notes on step 3:
@@ -146,6 +150,16 @@ After a run, check these files in this order:
 2. `plots/status.txt`: missing inputs, for example no `pulseheights.csv`.
 3. `plots/warnings.txt`: settings-ID mismatches and clipped error bars.
 4. `plots/comparisons/notes.csv`: excluded and provisional points.
+
+## Running only optical or only charge
+
+`--run optical` or `--run charge` runs just that analysis. The plots are made
+from whatever is in the results folder, so:
+- after `--run optical` alone, the V50 and ratio plots are empty (no charge
+  results yet);
+- running the other one later, into the same `<output_dir>`, adds its results,
+  and the plots are remade with both. The step that isn't rerun keeps its
+  earlier results.
 
 ## Re-running
 

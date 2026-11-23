@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# ./workflow.sh example.zip output/path/to/directory [--kind pressure|voltage] [--no-plot]
+# ./workflow.sh example.zip output/path/to/directory [--run optical|charge|both]
+#                [--kind pressure|voltage] [--no-plot]
 
 
 
@@ -12,11 +13,13 @@ BUILD="${WARTPC_BUILD:-$REPO/build}"
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") <file.zip> <output_dir> [--kind pressure|voltage] [--no-plot]
+Usage: $(basename "$0") <file.zip> <output_dir> [--run optical|charge|both]
+                         [--kind pressure|voltage] [--no-plot]
 
   <file.zip>      ZIP name in $TRANSFER (or a path to a ZIP)
   <output_dir>    where everything goes: <output_dir>/<name>/ (unzipped data)
                   and <output_dir>/<name>_results/ (analysis and plots)
+  --run WHAT      which analysis to run: optical, charge or both (default: both)
   --kind K        pressure or voltage: marker type in the plots (default: guessed
                   from the ZIP name, e.g. pressure-pass-06.zip or prp*.zip)
   --no-plot       skip the PLOT_GUIDE plots (made in <name>_results/plots)
@@ -26,12 +29,16 @@ EOF
 die() { echo "$*" >&2; exit 1; }
 
 cmdline="$0${*:+ $*}"
-name="" outdir="" do_plot=1 kind=""
+name="" outdir="" do_plot=1 kind="" run_what=both
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
     --plot) do_plot=1; shift ;;      # default; kept for older commands
     --no-plot) do_plot=0; shift ;;
+    --run)
+      [[ $# -ge 2 && ( "$2" == optical || "$2" == charge || "$2" == both ) ]] \
+        || die "--run must be optical, charge or both"
+      run_what="$2"; shift 2 ;;
     --kind)
       [[ $# -ge 2 && ( "$2" == pressure || "$2" == voltage ) ]] || die "--kind must be pressure or voltage"
       kind="$2"; shift 2 ;;
@@ -62,7 +69,12 @@ if [[ "$name" == */* ]]; then zip="$name"; else zip="$TRANSFER/$name"; fi
 
 # Tools needed below
 command -v unzip >/dev/null || die "unzip is not installed"
-for tool in optical charge; do
+case "$run_what" in
+  optical) steps=(optical) ;;
+  charge)  steps=(charge) ;;
+  both)    steps=(optical charge) ;;
+esac
+for tool in "${steps[@]}"; do
   [[ -x "$BUILD/$tool" ]] || die "$BUILD/$tool not found; build first: cmake -S $REPO -B $REPO/build && cmake --build $REPO/build"
 done
 [[ $do_plot -eq 0 || -x "$BUILD/plot" ]] || die "$BUILD/plot not found; rebuild the project"
@@ -85,6 +97,7 @@ tee_pid=${!:-}
 echo "# workflow started $(date '+%Y-%m-%d %H:%M:%S') on $(hostname)"
 echo "# command: $cmdline"
 echo "# zip:     $zip"
+echo "# run:     ${steps[*]}"
 echo "# log:     $log"
 echo
 
@@ -128,18 +141,21 @@ echo
 echo "Dataset: $dataset"
 echo "Results: $results"
 status=0
-if [[ -d "$dataset/optical" ]]; then
-  echo; echo "=== optical ==="
-  "$BUILD/optical" -i "$dataset" -o "$results" || { status=1; echo "optical: some runs failed (see $results/optical_status.txt)"; }
-else
-  echo "No optical/ folder in $stem; skipping optical"
-fi
-if [[ -d "$dataset/charge" ]]; then
-  echo; echo "=== charge ==="
-  "$BUILD/charge" -i "$dataset" -o "$results" || { status=1; echo "charge: some runs failed (see $results/charge_status.txt)"; }
-else
-  echo "No charge/ folder in $stem; skipping charge"
-fi
+for step in "${steps[@]}"; do
+  echo; echo "=== $step ==="
+  if [[ ! -d "$dataset/$step" ]]; then
+    # Asked for explicitly: a missing folder is an error. With "both", a
+    # dataset that only has one kind of data is fine.
+    if [[ "$run_what" == both ]]; then
+      echo "No $step/ folder in $stem; skipping $step"
+    else
+      status=1; echo "$step requested, but $stem has no $step/ folder"
+    fi
+    continue
+  fi
+  "$BUILD/$step" -i "$dataset" -o "$results" \
+    || { status=1; echo "$step: some runs failed (see $results/${step}_status.txt)"; }
+done
 
 # 5. Plots (PLOT_GUIDE.md), made from whatever optical/charge produced, so
 #    runs that failed above show up as missing in plots/status.txt.
