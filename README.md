@@ -27,6 +27,7 @@ warTPC_pipeline/
 ├── src/runner.cpp          source for charge and optical
 ├── src/plot.cpp            launcher for plot
 ├── plotting/plot.py        the plotting code behind plot
+├── scripts/workflow.sh     whole workflow for one uploaded ZIP
 ├── pipeline/pipeline.py    full optical + V50 pipeline
 ├── reference/
 │   ├── history.csv             comparison baseline (earlier voltage runs, pressure passes 1–5)
@@ -66,6 +67,30 @@ The analysis needs the Warwick cluster (hammer) environment:
 - `plot` itself needs only numpy, scipy, matplotlib and Pillow (no ROOT)
 
 Run analyses inside an authorised compute allocation, not on a login node.
+
+## Whole workflow: scripts/workflow.sh
+
+For a ZIP uploaded to `/storage/phsccs_grp/transfer/`. Full usage, output and
+troubleshooting are in [scripts/workflow.md](scripts/workflow.md).
+
+```bash
+cd scripts
+./workflow.sh example.zip output/path/to/directory              # unzip, optical, charge, plots
+./workflow.sh example.zip output/path/to/directory --no-plot    # same without the plots
+```
+
+1. Checks that `/storage/phsccs_grp` and its `transfer/` folder can be read.
+   If not, it prints `no access to the data` and stops.
+2. Checks that the ZIP exists in `transfer/`. If not, it prints
+   `<name> does not exist`.
+3. Unzips it into `<output_dir>/<name>/`.
+4. Runs `optical` and `charge` into `<output_dir>/<name>_results/`.
+5. Runs `plot` into `<output_dir>/<name>_results/plots/` (see [plot](#plot)).
+
+`<name>` is the ZIP name without `.zip`, and it's used as the dataset name in
+plots. Add `--kind pressure` or `--kind voltage` if the name doesn't start with
+`pressure-pass`, `prp`, `voltage-run` or `vr`. Build the project first (see
+below).
 
 ## charge / optical
 
@@ -227,6 +252,9 @@ For the V50 method, uncertainty treatment and the meaning of review flags, see
 
 - `charge` and `optical` have been tested with stub tools on a Mac.
 - `plot` has been tested on a simulated result folder on a Mac.
+- `scripts/workflow.sh` has been tested on a Mac against fake storage. The
+  tests covered no access, a missing file, a damaged ZIP, a ZIP with
+  `__MACOSX/`, and a full run.
 - `run_analysis` has been tested on simulated input.
 - None has been tested on a real dataset on the cluster. Check the logs and
   status files before using the results.
