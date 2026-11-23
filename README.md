@@ -27,7 +27,10 @@ warTPC_pipeline/
 ├── src/runner.cpp          source for charge and optical
 ├── src/plot.cpp            launcher for plot
 ├── plotting/plot.py        the plotting code behind plot
-├── scripts/workflow.sh     whole workflow for one uploaded ZIP
+├── scripts/unzip.sh        unzip an uploaded ZIP into a data folder
+├── scripts/workflow.sh     analyse an unzipped dataset: optical, charge, plots
+├── scripts/optical-analysis.sh  optical analysis of chosen runs only
+├── scripts/workflow.md     how to use both scripts
 ├── pipeline/pipeline.py    full optical + V50 pipeline
 ├── reference/
 │   ├── history.csv             comparison baseline (earlier voltage runs, pressure passes 1–5)
@@ -68,33 +71,40 @@ The analysis needs the Warwick cluster (hammer) environment:
 
 Run analyses inside an authorised compute allocation, not on a login node.
 
-## Whole workflow: scripts/workflow.sh
+## Whole workflow: scripts/unzip.sh + scripts/workflow.sh
 
-For a ZIP uploaded to `/storage/phsccs_grp/transfer/`. Full usage, output and
-troubleshooting are in [scripts/workflow.md](scripts/workflow.md).
+For a ZIP uploaded to `/storage/phsccs_grp/transfer/`: unzip it once with
+`unzip.sh`, then analyse the folder with `workflow.sh` as often as needed. Full
+usage, output and troubleshooting are in [scripts/workflow.md](scripts/workflow.md).
 
 ```bash
 cd scripts
-./workflow.sh example.zip output/path/to/directory              # unzip, optical, charge, plots
-./workflow.sh example.zip output/path/to/directory --no-plot    # same without the plots
-./workflow.sh example.zip output/path/to/directory --run charge # only charge (or --run optical)
+./unzip.sh example.zip ~/warTPC/data                                   # -> ~/warTPC/data/example/
+./workflow.sh ~/warTPC/data/example ~/warTPC/results                   # optical, charge, plots
+./workflow.sh ~/warTPC/data/example ~/warTPC/results --no-plot         # same without the plots
+./workflow.sh ~/warTPC/data/example ~/warTPC/results --run charge      # only charge (or --run optical)
+./optical-analysis.sh ~/warTPC/data/example ~/warTPC/results --runs 2,5-7  # redo chosen optical runs
 ```
 
-1. Checks that `/storage/phsccs_grp` and its `transfer/` folder can be read.
-   If not, it prints `no access to the data` and stops.
-2. Checks that the ZIP exists in `transfer/`. If not, it prints
-   `<name> does not exist`.
-3. Unzips it into `<output_dir>/<name>/`.
-4. Runs `optical` and `charge` into `<output_dir>/<name>_results/`.
-5. Runs `plot` into `<output_dir>/<name>_results/plots/` (see [plot](#plot)).
+`unzip.sh`:
+1. For a bare ZIP name, checks that `/storage/phsccs_grp` and `transfer/` can
+   be read. If not, it prints `no access to the data` and stops.
+2. Checks that the ZIP exists. If not, it prints `<name> does not exist`.
+3. Tests the ZIP and the free space, and unzips it into `<data_dir>/<name>/`.
+   If that folder already holds the data, it does nothing (`--force` unzips
+   again).
 
-Everything the workflow prints, from the unzip step on, is also saved to
+`workflow.sh` (never unzips; give it the unzipped folder):
+1. Runs `optical` and `charge` into `<output_dir>/<name>_results/`.
+2. Runs `plot` into `<output_dir>/<name>_results/plots/` (see [plot](#plot)).
+
+Everything `workflow.sh` prints is also saved to
 `<output_dir>/<name>_results/logs/workflow_<timestamp>.log`.
 
-`<name>` is the ZIP name without `.zip`, and it's used as the dataset name in
-plots. Add `--kind pressure` or `--kind voltage` if the name doesn't start with
-`pressure-pass`, `prp`, `voltage-run` or `vr`. Build the project first (see
-below).
+`<name>` is the dataset folder's name (the ZIP name without `.zip`), and it's
+used as the dataset name in plots. Add `--kind pressure` or `--kind voltage`
+if the name doesn't start with `pressure-pass`, `prp`, `voltage-run` or `vr`.
+Build the project first (see below).
 
 ## charge / optical
 
@@ -213,7 +223,10 @@ Set `WARTPC_PYTHON` to choose the Python interpreter (default `python3`).
 ├── run_conditions.csv/.md   V0–V4, pressure, methane fraction, exposure, V43+21/P, ID mismatches
 ├── results.csv              S_O, RMS, V50, width, event counts, ratio, review flags per run
 ├── optical_per_run/<run>/   ToT image, x/y projections, combined integral distribution,
-│                            plus 2D_ToT_before_fit.png and fit_parameters.txt / fit_failed.txt
+│                            x/y_projection_before_subtraction.png (with background fit),
+│                            plus 2D_ToT_before_fit.png, 2D_ToT_with_projections(_log).png,
+│                            xy_projections_before_fit.png
+│                            and fit_parameters.txt / fit_failed.txt
 ├── v50_distributions/       one histogram per run, with peak estimate, bin width and counts
 ├── summary_plots/           optical and V50: streaming + physics, linear + log;
 │                            ratio: streaming + physics, linear
@@ -248,10 +261,14 @@ original Blackbox.
 | File | Contents |
 |---|---|
 | `ToT-image-raw.png` | The integrated ToT map on linear and log colour scales; `+` marks the hottest pixel, where the fit starts |
+| `ToT-image-projections.png`, `ToT-image-projections-log.png` | The ToT map with its X projection histogram above and Y projection histogram to the right, on shared pixel axes |
+| `projections-raw.png`, `projections-raw.csv` | X and Y projection histograms (summed ToT per column / row) before any fit or background subtraction, on linear and log y |
 | `summary.txt` | Hits, pixels hit, total ToT, and the hottest pixel's share of the total (a large share means a hot pixel) |
 | `perChipTOT.npy`, `perChipHIT.npy` | The 256×256 ToT and hit-count maps, for `np.load` |
 | `fit_parameters.txt` | Fit result with uncertainties, plus flags: non-finite values, centre off the chip, width under half a pixel or over half the chip |
 | `fit_failed.txt` | The fit's error message and starting values, if it failed |
+| `sideband_regions/<s>to<b>.png`, `sideband_regions/regions.csv` | After the 2D fit, before the sideband fit: X and Y projections with the signal region and the sideband points for each of the 10 settings, and a table flagging impossible regions |
+| `sideband_failed.txt` | Which sideband setting crashed, and the error |
 | `no_hits.txt` | Written if the HDF5 file has no pixel hits |
 
 `plot` copies the image and the text files into `optical_per_run/<run>/` and
@@ -282,9 +299,9 @@ For the V50 method, uncertainty treatment and the meaning of review flags, see
 
 - `charge` and `optical` have been tested with stub tools on a Mac.
 - `plot` has been tested on a simulated result folder on a Mac.
-- `scripts/workflow.sh` has been tested on a Mac against fake storage. The
-  tests covered no access, a missing file, a damaged ZIP, a ZIP with
-  `__MACOSX/`, and a full run.
+- `scripts/unzip.sh` has been tested on a Mac against fake storage: no access,
+  a missing file, a damaged ZIP, a ZIP with `__MACOSX/`, already unzipped, and
+  `--force`. `scripts/workflow.sh` has been tested on unzipped fake data.
 - `run_analysis` has been tested on simulated input.
-- None has been tested on a real dataset on the cluster. Check the logs and
-  status files before using the results.
+- `optical` and `scripts/workflow.sh` have run on a real voltage dataset on the
+  cluster. Check the logs and status files before using the results.

@@ -115,9 +115,9 @@ try:
     fig, axs = plt.subplots(1, 2, figsize=(20, 9))
     for ax, scale in zip(axs, ("linear", "log")):
         if scale == "log" and (perChipTOT > 0).any():
-            im = ax.imshow(np.ma.masked_less_equal(perChipTOT, 0), norm=LogNorm())
+            im = ax.imshow(np.ma.masked_less_equal(perChipTOT, 0), norm=LogNorm(), interpolation="nearest")
         else:
-            im = ax.imshow(perChipTOT)
+            im = ax.imshow(perChipTOT, interpolation="nearest")
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Summed ToT")
         ax.plot(x_max, y_max, "r+", ms=16, mew=2)   # hottest pixel = fit starting point
         ax.set_xlabel("X Pixel", fontsize=14)
@@ -129,6 +129,100 @@ try:
     fig.tight_layout()
     fig.savefig(diag_folder+"/ToT-image-raw.png")
     plt.close(fig)
+
+    # Raw X and Y projections, before any fit or background subtraction.
+    # Same definition and error bars as tpx_analysis uses below
+    # (tot_x_collapse / tot_y_collapse: summed ToT / 1E6, error sqrt(hits)*10.2/1E6).
+    pix = np.arange(256)
+    proj = {"X": (perChipTOT.sum(axis=0) / 1E6, perChipHIT.sum(axis=0), x_max),
+            "Y": (perChipTOT.sum(axis=1) / 1E6, perChipHIT.sum(axis=1), y_max)}
+    with open(diag_folder+"/projections-raw.csv", "w") as fd:
+        fd.write("pixel,tot_x,hits_x,tot_y,hits_y\n")
+        for i in pix:
+            fd.write(f"{i},{proj['X'][0][i]},{proj['X'][1][i]},{proj['Y'][0][i]},{proj['Y'][1][i]}\n")
+    edges = np.arange(257) - 0.5            # one histogram bin per pixel
+
+    def proj_hist(ax, tot_p, hit_p, scale, horizontal=False):
+        """Projection as a 256-bin histogram (filled step) with light error bars."""
+        err_p = np.sqrt(hit_p * (10.2 / 1E6) ** 2)
+        orient = "horizontal" if horizontal else "vertical"
+        ax.stairs(tot_p, edges, orientation=orient, fill=True, color="tab:red", alpha=0.3)
+        ax.stairs(tot_p, edges, orientation=orient, color="tab:red", lw=1)
+        if horizontal:
+            ax.errorbar(tot_p, pix, xerr=err_p, fmt="none", ecolor="0.4", lw=0.6)
+        else:
+            ax.errorbar(pix, tot_p, yerr=err_p, fmt="none", ecolor="0.4", lw=0.6)
+        if scale == "log" and (tot_p > 0).any():
+            low = tot_p[tot_p > 0].min() / 2
+            if horizontal:
+                ax.set_xscale("log"); ax.set_xlim(left=low)
+            else:
+                ax.set_yscale("log"); ax.set_ylim(bottom=low)
+        elif horizontal:
+            ax.set_xlim(left=0)
+        else:
+            ax.set_ylim(bottom=0)
+
+    # (a) X and Y projection histograms, linear and log y
+    fig, axs = plt.subplots(2, 2, figsize=(20, 12))
+    for row, (axis_name, (tot_p, hit_p, hot)) in enumerate(proj.items()):
+        for col, scale in enumerate(("linear", "log")):
+            ax = axs[row, col]
+            proj_hist(ax, tot_p, hit_p, scale)
+            ax.axvline(hot, color="tab:blue", ls="--", lw=1, label=f"hottest pixel {axis_name}={hot}")
+            ax.set_xlim(-0.5, 255.5)
+            ax.set_xlabel(f"{axis_name} Pixel", fontsize=14)
+            ax.set_ylabel("ToT (ms) per pixel " + ("column" if axis_name == "X" else "row"), fontsize=14)
+            ax.set_title(f"{axis_name} projection, {scale} y", fontsize=14)
+            ax.legend(fontsize=11)
+            ax.grid(alpha=.2)
+    fig.suptitle(f"{ID}: X and Y projections of the ToT map before fit and background subtraction "
+                 f"(total {perChipTOT.sum() / 1E6:.4g} ms ToT)", fontsize=15)
+    fig.tight_layout()
+    fig.savefig(diag_folder+"/projections-raw.png")
+    plt.close(fig)
+
+    # (b) The 2D map with its X projection above and Y projection to the right,
+    #     on shared pixel axes. Linear and log versions.
+    for scale in ("linear", "log"):
+        fig = plt.figure(figsize=(14, 13))
+        gs = fig.add_gridspec(2, 2, width_ratios=(4, 1.3), height_ratios=(1.3, 4),
+                              wspace=0.04, hspace=0.04)
+        ax_img = fig.add_subplot(gs[1, 0])
+        ax_x = fig.add_subplot(gs[0, 0], sharex=ax_img)
+        ax_y = fig.add_subplot(gs[1, 1], sharey=ax_img)
+        ax_info = fig.add_subplot(gs[0, 1])
+        ax_info.axis("off")
+        if scale == "log" and (perChipTOT > 0).any():
+            im = ax_img.imshow(np.ma.masked_less_equal(perChipTOT, 0), norm=LogNorm(), aspect="auto",
+                               interpolation="nearest")
+        else:
+            im = ax_img.imshow(perChipTOT, aspect="auto", interpolation="nearest")
+        ax_img.plot(x_max, y_max, "r+", ms=16, mew=2)
+        ax_img.set_xlabel("X Pixel", fontsize=14)
+        ax_img.set_ylabel("Y Pixel", fontsize=14)
+        proj_hist(ax_x, proj["X"][0], proj["X"][1], scale)
+        proj_hist(ax_y, proj["Y"][0], proj["Y"][1], scale, horizontal=True)
+        ax_x.axvline(x_max, color="tab:blue", ls="--", lw=1)
+        ax_y.axhline(y_max, color="tab:blue", ls="--", lw=1)
+        ax_x.set_ylabel("ToT (ms)", fontsize=12)
+        ax_y.set_xlabel("ToT (ms)", fontsize=12)
+        ax_x.tick_params(labelbottom=False)
+        ax_y.tick_params(labelleft=False)
+        ax_x.grid(alpha=.2)
+        ax_y.grid(alpha=.2)
+        ax_img.set_xlim(-0.5, 255.5)
+        cax = ax_info.inset_axes([0.08, 0.62, 0.84, 0.1])
+        fig.colorbar(im, cax=cax, orientation="horizontal", label="Summed ToT per pixel")
+        ax_info.text(0.0, 0.42,
+                     f"{ID}\n{len(tot):,} hits\nhottest pixel ({x_max}, {y_max})\n"
+                     f"= {100 * max_val / tot_sum if tot_sum else 0:.1f}% of total ToT\n"
+                     f"{scale} scale; before fit\nand background subtraction",
+                     transform=ax_info.transAxes, va="top", fontsize=11)
+        fig.suptitle(f"{ID}: integrated ToT with X and Y projections ({scale} scale)", fontsize=15, y=0.93)
+        suffix = "" if scale == "linear" else "-log"
+        fig.savefig(diag_folder+f"/ToT-image-projections{suffix}.png", bbox_inches="tight")
+        plt.close(fig)
 except Exception as e:
     print(f"warning: could not save ToT diagnostics for {directory}: {e}")
 
@@ -436,13 +530,97 @@ signal_sig_list=[3,3,3,3,4,4,4,5,5,6]
 
 sideband_sig_list=[7,8,9,10,8,9,10,9,10,10]
 
+# --- Diagnostics (added): the X and Y projections exactly as tpx_analysis uses
+# them, with its signal and sideband regions marked, for EVERY setting, saved
+# BEFORE any sideband/background fit. They exist even if that fit crashes.
+# A failure here only prints a warning; it never stops the analysis.
+try:
+    sb_folder = diag_folder+"/sideband_regions"
+    os.makedirs(sb_folder, exist_ok=True)
+    pix = np.arange(256)
+    axes_info = [("X", xmean, xsig_proj, tot_x_collapse, hit_x_collapse),
+                 ("Y", ymean, ysig_proj, tot_y_collapse, hit_y_collapse)]
+    sb_rows = []
+    for aa in range(len(signal_sig_list)):
+        s_sig, b_sig = signal_sig_list[aa], sideband_sig_list[aa]
+        fig, axs = plt.subplots(1, 2, figsize=(20, 7))
+        for ax, (axis_name, mean, sig, tot_p, hit_p) in zip(axs, axes_info):
+            # Same region definitions as in tpx_analysis
+            sideband_low = int(round(mean-7*np.abs(sig), 0))
+            signal_low = int(round(mean-3*np.abs(sig), 0))
+            signal_high = int(round(mean+s_sig*np.abs(sig), 0))
+            sideband_high = int(round(mean+b_sig*np.abs(sig), 0))
+            in_signal = (pix >= signal_low) & (pix <= signal_high)
+            in_side = ((pix >= sideband_low) & (pix < signal_low)) | ((pix > signal_high) & (pix <= sideband_high))
+            err_p = np.sqrt(hit_p * (10.2 / 1E6) ** 2)
+            ax.errorbar(pix, tot_p, yerr=err_p, fmt="o", ms=3, color="tab:red", ecolor="0.7",
+                        lw=0.6, label="full projection")
+            ax.errorbar(pix[in_side], tot_p[in_side], yerr=err_p[in_side], fmt="o", ms=4,
+                        color="tab:blue", ecolor="tab:blue", lw=0.6,
+                        label=f"sideband points used for the fit ({int(in_side.sum())})")
+            ax.axvspan(signal_low - 0.5, signal_high + 0.5, color="gold", alpha=0.25,
+                       label=f"signal region {signal_low}..{signal_high}")
+            for b in (sideband_low, sideband_high):
+                ax.axvline(b, color="tab:blue", ls="--", lw=1)
+            ax.axvline(mean, color="k", ls=":", lw=1, label=f"2D fit centre {mean:.1f}, sigma {abs(sig):.2f}")
+            ax.set_xlim(-0.5, 255.5)
+            ax.set_ylim(bottom=0)
+            ax.set_xlabel(f"{axis_name} Pixel", fontsize=13)
+            ax.set_ylabel("ToT (ms)", fontsize=13)
+            ax.set_title(f"{axis_name} projection, signal to {s_sig} sigma, sideband to {b_sig} sigma", fontsize=13)
+            ax.legend(fontsize=9)
+            ax.grid(alpha=.2)
+            problems = []
+            if sideband_low < 0 or sideband_high > 255:
+                problems.append("sideband region extends off the chip")
+            if in_side.sum() < 5:   # a 4th-degree polynomial needs at least 5 points
+                problems.append(f"only {int(in_side.sum())} sideband points (4th-degree fit needs 5)")
+            if not np.isfinite(sig) or abs(sig) < 0.5:
+                problems.append("2D fit sigma below half a pixel")
+            sb_rows.append((axis_name, f"{s_sig}to{b_sig}", f"{mean:.3f}", f"{abs(sig):.3f}", sideband_low,
+                            signal_low, signal_high, sideband_high, int(in_signal.sum()),
+                            int(in_side.sum()), "; ".join(problems)))
+        fig.suptitle(f"{ID}: projections and regions used by the sideband fit "
+                     f"({s_sig}to{b_sig}), before that fit", fontsize=14)
+        fig.tight_layout()
+        fig.savefig(f"{sb_folder}/{s_sig}to{b_sig}.png")
+        plt.close(fig)
+    with open(sb_folder+"/regions.csv", "w") as fd:
+        fd.write("axis,setting,centre,sigma,sideband_low,signal_low,signal_high,sideband_high,"
+                 "signal_points,sideband_points,problems\n")
+        for row in sb_rows:
+            fd.write(",".join(str(v) for v in row) + "\n")
+    bad = [r for r in sb_rows if r[-1]]
+    if bad:
+        print(f"{directory}: sideband regions look problematic for {len(bad)} of {len(sb_rows)} "
+              f"axis/setting combinations (see {sb_folder}/regions.csv)")
+except Exception as e:
+    print(f"warning: could not save sideband-region diagnostics for {directory}: {e}")
+
+
+def tpx_analysis_checked(*args):
+    """tpx_analysis, recording which setting failed and why (added diagnostics)."""
+    try:
+        return tpx_analysis(*args)
+    except Exception as e:
+        import traceback
+        poly_type, s_sig, b_sig, axis = args[0], args[5], args[6], ("X" if args[11] == 0 else "Y")
+        with open(diag_folder+"/sideband_failed.txt", "w") as fd:
+            fd.write(f"tpx_analysis failed: {poly_type}, {axis} projection, signal to {s_sig} sigma, "
+                     f"sideband to {b_sig} sigma\n{type(e).__name__}: {e}\n\n{traceback.format_exc()}\n"
+                     f"See sideband_regions/{s_sig}to{b_sig}.png and sideband_regions/regions.csv.\n")
+        print(f"{directory}: sideband step failed at {poly_type} {axis} {s_sig}to{b_sig}: {e} "
+              f"(see {diag_folder}/sideband_failed.txt)")
+        raise
+
+
 for aa in range(len(signal_sig_list)):
-    tpx_analysis("4th_degree",xmean, xsig_proj, tot_x_collapse,hit_x_collapse, signal_sig_list[aa], sideband_sig_list[aa],twoD_Gaussian,perChipTOT,4,directory,0,res_folder+"_x",total_time,spark_cutting)
-    tpx_analysis("4th_degree",ymean, ysig_proj, tot_y_collapse,hit_y_collapse, signal_sig_list[aa], sideband_sig_list[aa],twoD_Gaussian,perChipTOT,4,directory,1,res_folder+"_y",total_time,spark_cutting)
-    tpx_analysis("3rd_degree",xmean, xsig_proj, tot_x_collapse,hit_x_collapse, signal_sig_list[aa], sideband_sig_list[aa],twoD_Gaussian,perChipTOT,3,directory,0,res_folder+"_x",total_time,spark_cutting)
-    tpx_analysis("3rd_degree",ymean, ysig_proj, tot_y_collapse,hit_y_collapse, signal_sig_list[aa], sideband_sig_list[aa],twoD_Gaussian,perChipTOT,3,directory,1,res_folder+"_y",total_time,spark_cutting)
-    tpx_analysis("2nd_degree",xmean, xsig_proj, tot_x_collapse,hit_x_collapse, signal_sig_list[aa], sideband_sig_list[aa],twoD_Gaussian,perChipTOT,2,directory,0,res_folder+"_x",total_time,spark_cutting)
-    tpx_analysis("2nd_degree",ymean, ysig_proj, tot_y_collapse,hit_y_collapse, signal_sig_list[aa], sideband_sig_list[aa],twoD_Gaussian,perChipTOT,2,directory,1,res_folder+"_y",total_time,spark_cutting)
+    tpx_analysis_checked("4th_degree",xmean, xsig_proj, tot_x_collapse,hit_x_collapse, signal_sig_list[aa], sideband_sig_list[aa],twoD_Gaussian,perChipTOT,4,directory,0,res_folder+"_x",total_time,spark_cutting)
+    tpx_analysis_checked("4th_degree",ymean, ysig_proj, tot_y_collapse,hit_y_collapse, signal_sig_list[aa], sideband_sig_list[aa],twoD_Gaussian,perChipTOT,4,directory,1,res_folder+"_y",total_time,spark_cutting)
+    tpx_analysis_checked("3rd_degree",xmean, xsig_proj, tot_x_collapse,hit_x_collapse, signal_sig_list[aa], sideband_sig_list[aa],twoD_Gaussian,perChipTOT,3,directory,0,res_folder+"_x",total_time,spark_cutting)
+    tpx_analysis_checked("3rd_degree",ymean, ysig_proj, tot_y_collapse,hit_y_collapse, signal_sig_list[aa], sideband_sig_list[aa],twoD_Gaussian,perChipTOT,3,directory,1,res_folder+"_y",total_time,spark_cutting)
+    tpx_analysis_checked("2nd_degree",xmean, xsig_proj, tot_x_collapse,hit_x_collapse, signal_sig_list[aa], sideband_sig_list[aa],twoD_Gaussian,perChipTOT,2,directory,0,res_folder+"_x",total_time,spark_cutting)
+    tpx_analysis_checked("2nd_degree",ymean, ysig_proj, tot_y_collapse,hit_y_collapse, signal_sig_list[aa], sideband_sig_list[aa],twoD_Gaussian,perChipTOT,2,directory,1,res_folder+"_y",total_time,spark_cutting)
 
 v2x=np.array([])
 v3x=np.array([])

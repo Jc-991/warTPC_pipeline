@@ -32,15 +32,25 @@ OPTICAL_IMAGES = {
     'signal-integral_x/2nd_degree/4to8/ToT-image.png': '2D_integrated_ToT.png',
     'signal-integral_x/2nd_degree/4to8/4to8_signal.png': 'x_projection_signal.png',
     'signal-integral_y/2nd_degree/4to8/4to8_signal.png': 'y_projection_signal.png',
+    # Before background subtraction: full projection, sideband points and the
+    # fitted polynomial background (same setting as the subtracted ones above).
+    'signal-integral_x/2nd_degree/4to8/4to8.png': 'x_projection_before_subtraction.png',
+    'signal-integral_y/2nd_degree/4to8/4to8.png': 'y_projection_before_subtraction.png',
     'Total-Stacked-signal-integral.png': 'combined_integral_distribution.png',
 }
 # Written by optical-analysis.py before the 2D fit, so present even for failed
 # runs. Optional: older Blackbox versions do not write them.
 OPTICAL_DIAGNOSTICS = {
     'diagnostics/ToT-image-raw.png': '2D_ToT_before_fit.png',
+    'diagnostics/projections-raw.png': 'xy_projections_before_fit.png',
+    'diagnostics/ToT-image-projections.png': '2D_ToT_with_projections.png',
+    'diagnostics/ToT-image-projections-log.png': '2D_ToT_with_projections_log.png',
     'diagnostics/summary.txt': 'ToT_summary.txt',
     'diagnostics/fit_parameters.txt': 'fit_parameters.txt',
     'diagnostics/fit_failed.txt': 'fit_failed.txt',
+    'diagnostics/sideband_regions/4to8.png': 'xy_projections_sideband_regions_4to8.png',
+    'diagnostics/sideband_regions/regions.csv': 'sideband_regions.csv',
+    'diagnostics/sideband_failed.txt': 'sideband_failed.txt',
     'diagnostics/no_hits.txt': 'no_hits.txt',
 }
 
@@ -234,7 +244,7 @@ def analyse_runs(src, out, rms_limit, warnings, issues):
             for rel, name in OPTICAL_DIAGNOSTICS.items():
                 if (opt / rel).is_file():
                     shutil.copy2(opt / rel, dst / name)
-            for name in ('fit_failed.txt', 'no_hits.txt'):
+            for name in ('fit_failed.txt', 'no_hits.txt', 'sideband_failed.txt'):
                 if (dst / name).is_file():
                     reason = (dst / name).read_text().splitlines()[0]
                     issues.append(f'{run}: {reason} (see optical_per_run/{run}/)')
