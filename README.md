@@ -68,6 +68,23 @@ The analysis needs the Warwick cluster (hammer) environment:
 - CMake ≥ 3.16 and a C++17 compiler, to build `charge`, `optical` and `plot`
 - `plot` itself needs only numpy, scipy, matplotlib and Pillow (no ROOT)
 
+### Install the Timepix3 converter
+
+Optical analysis needs `blackbox/tpx3dump` to convert `.tpx3` files to HDF5.
+The Linux x86-64 executable is about 102 MiB, which exceeds
+[GitHub's 100 MiB limit for regular Git files](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github).
+Copy it from your existing Blackbox installation on the cluster. From the
+`warTPC_pipeline` checkout, run:
+
+```bash
+cp "$HOME/warTPC/Blackbox/tpx3dump" blackbox/tpx3dump
+chmod +x blackbox/tpx3dump
+```
+
+This checkout does not include the converter source. The CMake build creates
+the pipeline launchers and can install a converter you have already placed
+in `blackbox/`.
+
 Run analyses inside an authorised compute allocation, not on a login node.
 
 ## Whole workflow: scripts/unzip.sh + scripts/workflow.sh
