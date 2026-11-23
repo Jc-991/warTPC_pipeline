@@ -196,3 +196,4 @@ WARTPC_BLACKBOX=~/warTPC/Blackbox ./workflow.sh example.zip /path/to/scratch/war
 | `not enough space in ...` | Choose an `<output_dir>` on scratch or project space |
 | `has no optical/ or charge/ folder` | The ZIP has a different layout. It needs `optical/<run>/` and/or `charge/<run>/`, either at the top or inside one folder |
 | `contains more than one dataset folder` | Upload each dataset as its own ZIP |
+| `charge requested, but <name> has no charge/ folder` (or `optical`) | The ZIP has no data for the analysis chosen with `--run`. Check the ZIP contents, or use `--run both` |
