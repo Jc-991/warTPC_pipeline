@@ -1,4 +1,4 @@
-# unzip.sh, workflow.sh and optical-analysis.sh
+# unzip.sh, workflow.sh, optical-analysis.sh and optical-rebin-x.sh
 
 Two scripts take an uploaded dataset from `/storage/phsccs_grp/transfer/` to
 plots:
@@ -140,6 +140,7 @@ ones that failed) without rerunning the whole dataset.
 | `--runs LIST` | Runs to analyse, separated by commas or spaces. `3` = run number 3 from `--list`; `2-5` = numbers 2 to 5; `vr22-07` = a run name; `'vr22-1*'` = a name pattern (quote it); `all` = every run. Without `--runs`, the runs are listed and you are asked |
 | `--list` | Only list the runs with their numbers |
 | `--kind pressure\|voltage` | Marker type in the plots |
+| `--analysis FILE` | Use FILE instead of `blackbox/optical-analysis.py`, e.g. `../blackbox/optical-analysis-rebin-x.py` |
 | `--rebin N` | Test: merge N×N pixels (N = 2, 4, 8, 16) before the 2D Gaussian fit. The rebinned map and slices are printed too, and the fit result is converted back to pixel units, so the rest of the analysis is unchanged. Default 1 = no rebinning |
 | `--no-plot` | Skip the plots |
 
@@ -273,6 +274,35 @@ After a `workflow.sh` run, check these files in this order:
 2. `plots/status.txt`: missing inputs, for example no `pulseheights.csv`.
 3. `plots/warnings.txt`: settings-ID mismatches and clipped error bars.
 4. `plots/comparisons/notes.csv`: excluded and provisional points.
+
+## Matt's analysis with rebinX(2): optical-rebin-x.sh
+
+`blackbox/optical-analysis-rebin-x.py` is Matt's original Blackbox
+`optical-analysis.py` with one change: the 2D Gaussian fit uses the ToT map
+with neighbouring X columns merged (rebinX(2), 256×256 → 256×128). The fit
+runs in pixel coordinates, and amplitude and offset are converted back to
+per-pixel values, so everything after the fit is Matt's code unchanged. (It has
+none of this project's diagnostics.)
+
+```bash
+./optical-rebin-x.sh <dataset_dir> <output_dir> --runs vr22-07 --kind voltage
+```
+
+Options are those of `optical-analysis.sh` (`--runs`, `--list`, `--kind`,
+`--no-plot`). It:
+1. runs `optical-analysis-rebin-x.py` on the chosen runs into
+   `<output_dir>/<name>_results/` (same selection, logs and plots as
+   `optical-analysis.sh`);
+2. saves the fit inputs, original vs X-rebinned map and projections, for every
+   run: `rebin_x_inputs/<run>-before-fit.png`;
+3. fits each run both ways and lists the centres, widths and which
+   signal/sideband regions change: `rebin_x_fit_check/<run>.txt`.
+
+Use a different `<output_dir>` from your normal runs, so the S_O results
+(`optical/<run>/integral.csv`) can be compared.
+
+`optical-analysis.sh --analysis FILE` runs any other version of the optical
+analysis the same way.
 
 ## Rebinning test
 

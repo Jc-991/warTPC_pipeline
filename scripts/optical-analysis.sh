@@ -29,6 +29,8 @@ Usage: $(basename "$0") <dataset_dir> <output_dir> [--runs LIST] [--kind pressur
   --kind K        pressure or voltage: marker type in the plots
   --rebin N       test: merge N x N pixels before the 2D fit (N = 2, 4, ...;
                   default 1 = no rebinning); also prints the rebinned plots
+  --analysis FILE use FILE instead of blackbox/optical-analysis.py, e.g.
+                  ../blackbox/optical-analysis-rebin-x.py (Matt's code with rebinX(2))
   --no-plot       skip the plots
   -h, --help      show this help
 EOF
@@ -36,13 +38,14 @@ EOF
 die() { echo "$*" >&2; exit 1; }
 
 cmdline="$0${*:+ $*}"
-name="" outdir="" selection="" list_only=0 do_plot=1 kind=""
+name="" outdir="" selection="" list_only=0 do_plot=1 kind="" analysis=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
     --list) list_only=1; shift ;;
     --runs) [[ $# -ge 2 ]] || die "--runs needs a list"; selection="$2"; shift 2 ;;
     --no-plot) do_plot=0; shift ;;
+    --analysis) [[ $# -ge 2 ]] || die "--analysis needs a file"; analysis="$2"; shift 2 ;;
     --rebin)
       [[ $# -ge 2 && "$2" =~ ^(1|2|4|8|16)$ ]] || die "--rebin must be 1, 2, 4, 8 or 16"
       export WARTPC_REBIN="$2"; shift 2 ;;
@@ -115,6 +118,10 @@ for tok in ${selection//,/ }; do
 done
 (( ${#chosen[@]} > 0 )) || die "nothing selected"
 
+if [[ -n "$analysis" ]]; then
+  [[ -f "$analysis" ]] || die "--analysis: $analysis does not exist"
+  analysis="$(cd "$(dirname "$analysis")" && pwd)/$(basename "$analysis")"
+fi
 [[ -x "$BUILD/optical" ]] || die "$BUILD/optical not found; build first: cmake -S $REPO -B $REPO/build && cmake --build $REPO/build"
 [[ $do_plot -eq 0 || -x "$BUILD/plot" ]] || die "$BUILD/plot not found; rebuild the project"
 
@@ -133,17 +140,30 @@ echo "# command: $cmdline"
 echo "# dataset: $dataset"
 echo "# runs:    ${chosen[*]} (${#chosen[@]} of ${#runs[@]})"
 echo "# rebin:   ${WARTPC_REBIN:-1} (2D fit)"
+echo "# analysis: ${analysis:-blackbox/optical-analysis.py}"
 echo "# log:     $log"
 
 # 4. Analyse the chosen runs in a staging folder. optical_run.sh processes
 #    every run folder it finds, so it gets a view with only the chosen runs.
 view="$results/.select_view_$stamp"
 stage="$results/.select_stage_$stamp"
-trap 'rm -rf "$view" "$stage"' EXIT
+bbdir=""
+trap 'rm -rf "$view" "$stage" ${bbdir:+"$bbdir"}' EXIT
 mkdir -p "$view/optical"
 for r in "${chosen[@]}"; do ln -s "$dataset/optical/$r" "$view/optical/$r"; done
 
 echo; echo "=== optical (${#chosen[@]} runs) ==="
+# Another analysis file: a temporary Blackbox folder holding the usual files,
+# with that file in place of optical-analysis.py.
+if [[ -n "$analysis" ]]; then
+  bb_src="${WARTPC_BLACKBOX:-$REPO/blackbox}"
+  bbdir="$results/.select_blackbox_$stamp"
+  mkdir -p "$bbdir"
+  for f in "$bb_src"/*; do ln -s "$f" "$bbdir/$(basename "$f")"; done
+  rm -f "$bbdir/optical-analysis.py"
+  ln -s "$analysis" "$bbdir/optical-analysis.py"
+  export WARTPC_BLACKBOX="$bbdir"
+fi
 "$BUILD/optical" -i "$view" -o "$stage"
 status=$?
 

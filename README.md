@@ -29,6 +29,8 @@ warTPC_pipeline/
 ├── scripts/unzip.sh        unzip an uploaded ZIP into a data folder
 ├── scripts/workflow.sh     analyse an unzipped dataset: optical, charge, plots
 ├── scripts/optical-analysis.sh  optical analysis of chosen runs only
+├── scripts/optical-rebin-x.sh   Matt's optical analysis with rebinX(2) for the 2D fit, plus comparisons
+├── scripts/plot-rebin-x-inputs.py, check-rebin-x-fit.py   comparisons used by optical-rebin-x.sh
 ├── scripts/workflow.md     usage and troubleshooting for the scripts above
 ├── pipeline/pipeline.py    full optical + V50 pipeline
 ├── reference/
@@ -39,6 +41,7 @@ warTPC_pipeline/
     ├── setup_blackbox.sh       loads the cluster modules
     ├── tpx3dump                TPX3 -> HDF5 converter (Linux x86-64 binary)
     ├── optical-analysis.py
+    ├── optical-analysis-rebin-x.py   Matt's optical-analysis.py with rebinX(2) for the 2D fit
     ├── waveform-integrator.py
     └── waveform-plotting.py
 ```
