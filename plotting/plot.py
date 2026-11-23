@@ -27,13 +27,15 @@ V50_METHOD = ('scipy find_peaks on a 199-bin 0-6000 mV histogram of channel-B pu
               'higher-mV one is taken, at its bin lower edge; candidates under 20 counts are set to 0 '
               '(no estimate); width = FWHM/2.355. No Gaussian fit.')
 
-# The only files copied into optical_per_run/<run>/: source (inside
-# optical/<run>/) -> name. Both are written by optical-analysis.py before the
-# 2D fit, so they exist even for runs that fail later. Everything else stays in
-# optical/<run>/ (and optical/<run>/diagnostics/).
+# The only four files copied into optical_per_run/<run>/: source (inside
+# optical/<run>/) -> name. All from the 4to8 setting with the 2nd-degree
+# background fit, the same whether rebin-x is on or off. Everything else stays
+# in optical/<run>/.
 OPTICAL_PER_RUN = {
-    'diagnostics/ToT-image-raw.png': '2D_ToT_before_fit.png',
-    'diagnostics/projections-raw.png': 'xy_slices_before_fit.png',
+    'signal-integral_x/2nd_degree/4to8/ToT-image.png': '2D_integrated_ToT.png',
+    'signal-integral_x/2nd_degree/4to8/4to8_signal.png': 'x_projection_signal.png',
+    'signal-integral_y/2nd_degree/4to8/4to8_signal.png': 'y_projection_signal.png',
+    'Total-Stacked-signal-integral.png': 'combined_integral_distribution.png',
 }
 # Failure notes written by optical-analysis.py; their first line goes into status.txt.
 OPTICAL_FAILURE_NOTES = ('diagnostics/no_hits.txt', 'diagnostics/fit_failed.txt',
@@ -225,12 +227,7 @@ def analyse_runs(src, out, rms_limit, warnings, issues):
                 if (opt / rel).is_file():
                     shutil.copy2(opt / rel, dst / name)
                 else:
-                    issues.append(f'{run}: missing {rel} (optical-analysis.py without diagnostics?)')
-            # Rebinning test (WARTPC_REBIN / --rebin): rebinned versions of the two plots
-            for f in sorted((opt / 'diagnostics').glob('ToT-image-raw-rebin*.png')):
-                shutil.copy2(f, dst / f"2D_ToT_before_fit_{f.stem.split('-')[-1]}.png")
-            for f in sorted((opt / 'diagnostics').glob('projections-raw-rebin*.png')):
-                shutil.copy2(f, dst / f"xy_slices_before_fit_{f.stem.split('-')[-1]}.png")
+                    issues.append(f'{run}: missing optical/{run}/{rel}')
             for rel in OPTICAL_FAILURE_NOTES:
                 if (opt / rel).is_file():
                     reason = (opt / rel).read_text().splitlines()[0]
@@ -475,7 +472,8 @@ Dataset: {dataset} ({kind} runs)
 
 run_conditions.csv/.md  V0-V4, pressure, methane fraction, exposure, V43+21/P per run.
 results.csv             Numerical results, spreads and review flags per run.
-optical_per_run/        Integrated ToT image, x/y projections, combined integral distribution.
+optical_per_run/        4 plots per run (4to8, 2nd-degree background): 2D_integrated_ToT,
+                        x/y_projection_signal, combined_integral_distribution.
 v50_distributions/      Channel-B V50 histogram per run (own x range; peak estimate dashed).
 summary_plots/          {{optical,v50}}_{{streaming,physics}}_{{linear,log}}.png and
                         ratio_{{streaming,physics}}_linear.png for this dataset.

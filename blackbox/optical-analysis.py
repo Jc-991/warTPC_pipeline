@@ -103,28 +103,41 @@ REBIN = int(os.environ.get("WARTPC_REBIN", "1") or 1)
 if REBIN < 1 or 256 % REBIN:
     print(f"warning: WARTPC_REBIN={REBIN} does not divide 256; not rebinning")
     REBIN = 1
-nb = 256 // REBIN
-tot_fit_map = perChipTOT.reshape(nb, REBIN, nb, REBIN).sum(axis=(1, 3))
-hit_fit_map = perChipHIT.reshape(nb, REBIN, nb, REBIN).sum(axis=(1, 3))
-if REBIN > 1:
-    print(f"{directory}: rebinning the ToT map by {REBIN} in x and y for the 2D fit ({nb}x{nb} bins)")
+# --- rebinX(2) switch (added): WARTPC_REBIN_X=1 merges neighbouring X pixels in
+# pairs (columns 0+1, 2+3, ...) for the 2D Gaussian fit AND for the X
+# projection before the sideband fits (128 X bins at pixel centres 2k+0.5).
+# Default 0 = off, the original behaviour. Set by --rebin-x on in the scripts.
+REBIN_X = os.environ.get("WARTPC_REBIN_X", "0").strip().lower() in ("1", "on", "yes", "true")
+if REBIN_X and REBIN > 1:
+    sys.exit("WARTPC_REBIN_X and WARTPC_REBIN > 1 cannot be combined; choose one")
+FX, FY = (2, 1) if REBIN_X else (REBIN, REBIN)       # pixels per fit bin in X, Y
+if REBIN_X:
+    REBIN_LABEL, REBIN_SFX = "rebinX(2): X pixels merged in pairs (2D fit and X sideband fits)", "-rebinX2"
+elif REBIN > 1:
+    REBIN_LABEL, REBIN_SFX = f"{REBIN}x{REBIN} pixels merged (2D fit only)", f"-rebin{REBIN}"
+else:
+    REBIN_LABEL, REBIN_SFX = "none", ""
+tot_fit_map = perChipTOT.reshape(256 // FY, FY, 256 // FX, FX).sum(axis=(1, 3))
+hit_fit_map = perChipHIT.reshape(256 // FY, FY, 256 // FX, FX).sum(axis=(1, 3))
+if REBIN_LABEL != "none":
+    print(f"{directory}: rebinning: {REBIN_LABEL}; 2D fit map {tot_fit_map.shape[0]} (Y) x {tot_fit_map.shape[1]} (X) bins")
 
 
-def save_map_plots(tot_map, hit_map, f):
+def save_map_plots(tot_map, hit_map, fx=1, fy=1, sfx=""):
     """Map, X/Y slices through the peak, and map with slices, for a map whose
-    bins are f x f pixels (f = 1: original). Axes are always in pixel units."""
-    sfx = "" if f == 1 else f"-rebin{f}"
-    unit = "pixel" if f == 1 else f"{f}x{f}-pixel bin"
-    n = tot_map.shape[0]
+    bins are fx (X) x fy (Y) pixels (1, 1: original). Axes are always in pixel units."""
+    unit = "pixel" if fx == fy == 1 else f"{fx}x{fy}-pixel bin"
     by, bx = np.unravel_index(np.argmax(tot_map), tot_map.shape)
-    cen = lambda b: f * b + (f - 1) / 2            # bin index -> pixel coordinate
-    px, py = cen(bx), cen(by)
+    cen_x = lambda b: fx * b + (fx - 1) / 2         # bin index -> pixel coordinate
+    cen_y = lambda b: fy * b + (fy - 1) / 2
+    px, py = cen_x(bx), cen_y(by)
     t_sum = float(tot_map.sum())
     frac = 100 * tot_map[by, bx] / t_sum if t_sum else 0
     ext = (-0.5, 255.5, 255.5, -0.5)
-    title_bin = "" if f == 1 else f", rebinned by {f}"
-    centres = cen(np.arange(n))
-    edges_f = np.arange(n + 1) * f - 0.5
+    title_bin = "" if fx == fy == 1 else (", rebinX(2)" if (fx, fy) == (2, 1) else f", rebinned by {fx}")
+    centres_x, centres_y = cen_x(np.arange(tot_map.shape[1])), cen_y(np.arange(tot_map.shape[0]))
+    edges_x = np.arange(tot_map.shape[1] + 1) * fx - 0.5
+    edges_y = np.arange(tot_map.shape[0] + 1) * fy - 0.5
 
     # (a) the map, linear colour scale
     fig, ax = plt.subplots(figsize=(11, 9))
@@ -144,14 +157,15 @@ def save_map_plots(tot_map, hit_map, f):
     slices = {"X": (tot_map[by, :], hit_map[by, :], px, f"row Y = {py:g}"),
               "Y": (tot_map[:, bx], hit_map[:, bx], py, f"column X = {px:g}")}
     with open(diag_folder+f"/projections-raw{sfx}.csv", "w") as fd:
-        fd.write(f"pixel_centre,slice_x_tot(row y={py:g}),slice_x_hits,slice_y_tot(column x={px:g}),"
-                 "slice_y_hits,sum_x_tot,sum_y_tot\n")
+        fd.write(f"axis,pixel_centre,slice_tot(X: row y={py:g}; Y: column x={px:g}),slice_hits,sum_tot\n")
         sum_x, sum_y = tot_map.sum(axis=0), tot_map.sum(axis=1)
-        for k in range(n):
-            fd.write(f"{centres[k]:g},{slices['X'][0][k]},{slices['X'][1][k]},{slices['Y'][0][k]},"
-                     f"{slices['Y'][1][k]},{sum_x[k]},{sum_y[k]}\n")
+        for k in range(len(centres_x)):
+            fd.write(f"X,{centres_x[k]:g},{slices['X'][0][k]},{slices['X'][1][k]},{sum_x[k]}\n")
+        for k in range(len(centres_y)):
+            fd.write(f"Y,{centres_y[k]:g},{slices['Y'][0][k]},{slices['Y'][1][k]},{sum_y[k]}\n")
 
-    def slice_hist(ax, tot_p, hit_p, horizontal=False):
+    def slice_hist(ax, axis_name, tot_p, hit_p, horizontal=False):
+        centres, edges_f = (centres_x, edges_x) if axis_name == "X" else (centres_y, edges_y)
         err_p = np.sqrt(hit_p) * 10.2
         orient = "horizontal" if horizontal else "vertical"
         ax.stairs(tot_p, edges_f, orientation=orient, fill=True, color="tab:red", alpha=0.3)
@@ -166,7 +180,7 @@ def save_map_plots(tot_map, hit_map, f):
     # (b) X and Y slices through the peak
     fig, axs = plt.subplots(1, 2, figsize=(20, 7))
     for ax, (axis_name, (tot_p, hit_p, hot, where)) in zip(axs, slices.items()):
-        slice_hist(ax, tot_p, hit_p)
+        slice_hist(ax, axis_name, tot_p, hit_p)
         ax.axvline(hot, color="tab:blue", ls="--", lw=1, label=f"peak {axis_name} = {hot:g}")
         ax.set_xlim(-0.5, 255.5)
         ax.set_xlabel(f"{axis_name} Pixel", fontsize=14)
@@ -194,8 +208,8 @@ def save_map_plots(tot_map, hit_map, f):
     ax_img.plot(px, py, "r+", ms=16, mew=2)
     ax_img.set_xlabel("X Pixel", fontsize=14)
     ax_img.set_ylabel("Y Pixel", fontsize=14)
-    slice_hist(ax_x, slices["X"][0], slices["X"][1])
-    slice_hist(ax_y, slices["Y"][0], slices["Y"][1], horizontal=True)
+    slice_hist(ax_x, "X", slices["X"][0], slices["X"][1])
+    slice_hist(ax_y, "Y", slices["Y"][0], slices["Y"][1], horizontal=True)
     ax_x.axvline(px, color="tab:blue", ls="--", lw=1)
     ax_y.axhline(py, color="tab:blue", ls="--", lw=1)
     ax_x.set_ylabel(f"ToT, row Y={py:g}", fontsize=11)
@@ -232,11 +246,11 @@ try:
                  f"hottest pixel (x, y): ({x_max}, {y_max}), ToT {max_val}"
                  f" = {100 * max_val / tot_sum if tot_sum else 0:.2f}% of total\n"
                  f"exposure (total_time): {total_time}\n"
-                 f"2D fit on map rebinned by: {REBIN}\n")
-    save_map_plots(perChipTOT, perChipHIT, 1)
-    if REBIN > 1:
-        np.save(diag_folder+f"/perChipTOT-rebin{REBIN}.npy", tot_fit_map)
-        save_map_plots(tot_fit_map, hit_fit_map, REBIN)
+                 f"rebinning: {REBIN_LABEL}\n")
+    save_map_plots(perChipTOT, perChipHIT)
+    if REBIN_SFX:
+        np.save(diag_folder+f"/perChipTOT{REBIN_SFX}.npy", tot_fit_map)
+        save_map_plots(tot_fit_map, hit_fit_map, FX, FY, REBIN_SFX)
 except Exception as e:
     print(f"warning: could not save ToT diagnostics for {directory}: {e}")
 
@@ -269,28 +283,34 @@ initial_guess = (10E+3, x_max, y_max, 1.0, 1.0,0.,0.)#amp,xmean,ymean,xsig,ysig,
 
 twoD_Gaussian((yFit,xFit), *initial_guess).shape
 
-# --- Rebinning test (added): with REBIN > 1 the fit runs on the rebinned map
-# (in bin units); with REBIN = 1 this is exactly the original fit.
+# --- Rebinning (added): the fit runs on the rebinned map, with each bin placed
+# at its centre in pixel coordinates (FX*k + (FX-1)/2), so the centre and
+# widths come out in pixels; amplitude and offset are converted from per bin
+# to per pixel. With no rebinning this is exactly the original fit.
 yb_grid, xb_grid = np.indices(tot_fit_map.shape)
-xFitR, yFitR, dataFitR = xb_grid.ravel(), yb_grid.ravel(), tot_fit_map.ravel()
+xFitR = (FX * xb_grid + (FX - 1) / 2).ravel()
+yFitR = (FY * yb_grid + (FY - 1) / 2).ravel()
+dataFitR = tot_fit_map.ravel()
 yb_max, xb_max = np.unravel_index(np.argmax(tot_fit_map), tot_fit_map.shape)
-initial_guess_fit = (10E+3, xb_max, yb_max, 1.0, 1.0, 0., 0.) if REBIN > 1 else initial_guess
+if FX == FY == 1:
+    initial_guess_fit = initial_guess
+else:
+    initial_guess_fit = (10E+3 * FX * FY, FX * xb_max + (FX - 1) / 2, FY * yb_max + (FY - 1) / 2,
+                         1.0, 1.0, 0., 0.)
 
 try:
     popt, pcov = opt.curve_fit(twoD_Gaussian, (yFitR, xFitR), dataFitR, p0=initial_guess_fit)
-    if REBIN > 1:
-        # bin units -> pixel units: centre f*c+(f-1)/2, widths *f, amplitude and
-        # offset per pixel instead of per f*f bin
-        scale = np.array([1 / REBIN**2, REBIN, REBIN, REBIN, REBIN, 1, 1 / REBIN**2])
-        popt = popt * scale + np.array([0, (REBIN - 1) / 2, (REBIN - 1) / 2, 0, 0, 0, 0])
+    if FX * FY > 1:
+        scale = np.array([1 / (FX * FY), 1, 1, 1, 1, 1, 1 / (FX * FY)])
+        popt = popt * scale
         pcov = pcov * np.outer(scale, scale)
 except Exception as e:
     # --- Diagnostics (added): record why the fit failed, then fail as before.
     with open(diag_folder+"/fit_failed.txt", "w") as fd:
         fd.write(f"2D Gaussian fit failed: {type(e).__name__}: {e}\n"
-                 f"fit on map rebinned by {REBIN}\n"
-                 f"initial guess (amp, x0, y0, sigma_x, sigma_y, theta, offset; in "
-                 f"{'bins' if REBIN > 1 else 'pixels'}): {initial_guess_fit}\n"
+                 f"rebinning: {REBIN_LABEL}\n"
+                 f"initial guess (amp per bin, x0, y0, sigma_x, sigma_y in pixels, theta, offset): "
+                 f"{initial_guess_fit}\n"
                  f"See ToT-image-raw.png and summary.txt in this folder.\n")
     print(f"{directory}: 2D Gaussian fit failed: {e} (see {diag_folder}/fit_failed.txt)")
     raise
@@ -313,7 +333,7 @@ with open(diag_folder+"/fit_parameters.txt", "w") as fd:
     for n, v, err in zip(fit_names, popt, perr):
         fd.write(f"{n:10s} {v:14.6g} +- {err:.3g}\n")
     fd.write("flags: " + ("; ".join(fit_flags) if fit_flags else "none") + "\n")
-    fd.write(f"fit on map rebinned by {REBIN}; parameters above are in original pixel units\n")
+    fd.write(f"rebinning: {REBIN_LABEL}; parameters above are per original pixel\n")
 if fit_flags:
     print(f"{directory}: 2D Gaussian fit looks suspicious: {'; '.join(fit_flags)} "
           f"(see {diag_folder}/fit_parameters.txt)")
@@ -332,6 +352,15 @@ ysig_proj=np.sqrt(xsig**2*np.sin(fig_theta)**2+ysig**2 * np.cos(fig_theta)**2)
 
 tot_x_collapse = np.ascontiguousarray(np.sum(perChipTOT[:,:], axis=0),dtype=np.float64)/1E6
 hit_x_collapse = np.sum(perChipHIT[:,:], axis=0)
+# --- rebinX(2) switch (added): X projection in 128 bins of 2 pixels before the
+# sideband fits; X positions are the pair centres (see x_positions).
+if REBIN_X:
+    tot_x_collapse = np.ascontiguousarray(tot_x_collapse[0::2] + tot_x_collapse[1::2])
+    hit_x_collapse = hit_x_collapse[0::2] + hit_x_collapse[1::2]
+
+def x_positions(n):
+    """Pixel coordinate of each projection bin: 0..255, or 2k+0.5 for 128 bins."""
+    return np.arange(256, dtype=float) if n == 256 else 2.0 * np.arange(n) + 0.5
 
 tot_y_collapse = np.ascontiguousarray(np.sum(perChipTOT[:,:], axis=1),dtype=np.float64)/1E6
 hit_y_collapse = np.sum(perChipHIT[:,:], axis=1)
@@ -388,8 +417,7 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
 
     xpos_3sig=[]
 
-    for mm in range (0,256):
-        xpos_3sig=np.append(xpos_3sig,mm)
+    xpos_3sig = x_positions(len(ycomp_3sig))   # (added) 0..255, or pair centres with rebinX(2)
     
     sig3_full=[]
     sig3_full_bins=[]
@@ -476,6 +504,8 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
     latex_ID.SetNDC()
     latex_ID.SetTextSize(0.03)
     latex_ID.DrawLatex(0.15, 0.85, f"ID: {ID}")
+    if len(ycomp_3sig) != 256:   # (added) rebinX(2)
+        latex_ID.DrawLatex(0.15, 0.80, f"RebinX(2): {len(ycomp_3sig)} bins")
     
     data_sig3.Draw("PE SAME")
     dat_fit_sig3.Draw("SAME")
@@ -536,6 +566,8 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
     latex_ID.SetNDC()
     latex_ID.SetTextSize(0.03)
     latex_ID.DrawLatex(0.15, 0.85, f"ID: {ID}")
+    if len(ycomp_3sig) != 256:   # (added) rebinX(2)
+        latex_ID.DrawLatex(0.15, 0.80, f"RebinX(2): {len(ycomp_3sig)} bins")
     
     canvas_signal3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_signal.png")
     canvas_signal3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_signal.eps")
@@ -567,7 +599,6 @@ sideband_sig_list=[7,8,9,10,8,9,10,9,10,10]
 try:
     sb_folder = diag_folder+"/sideband_regions"
     os.makedirs(sb_folder, exist_ok=True)
-    pix = np.arange(256)
     axes_info = [("X", xmean, xsig_proj, tot_x_collapse, hit_x_collapse),
                  ("Y", ymean, ysig_proj, tot_y_collapse, hit_y_collapse)]
     sb_rows = []
@@ -580,6 +611,7 @@ try:
             signal_low = int(round(mean-3*np.abs(sig), 0))
             signal_high = int(round(mean+s_sig*np.abs(sig), 0))
             sideband_high = int(round(mean+b_sig*np.abs(sig), 0))
+            pix = x_positions(len(tot_p))
             in_signal = (pix >= signal_low) & (pix <= signal_high)
             in_side = ((pix >= sideband_low) & (pix < signal_low)) | ((pix > signal_high) & (pix <= sideband_high))
             err_p = np.sqrt(hit_p * (10.2 / 1E6) ** 2)
@@ -597,7 +629,8 @@ try:
             ax.set_ylim(bottom=0)
             ax.set_xlabel(f"{axis_name} Pixel", fontsize=13)
             ax.set_ylabel("ToT (ms)", fontsize=13)
-            ax.set_title(f"{axis_name} projection, signal to {s_sig} sigma, sideband to {b_sig} sigma", fontsize=13)
+            ax.set_title(f"{axis_name} projection{' (rebinX(2), 128 bins)' if len(tot_p) != 256 else ''}, "
+                         f"signal to {s_sig} sigma, sideband to {b_sig} sigma", fontsize=13)
             ax.legend(fontsize=9)
             ax.grid(alpha=.2)
             problems = []

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ./workflow.sh path/to/unzipped/dataset output/path/to/directory
-#               [--run optical|charge|both] [--kind pressure|voltage] [--no-plot]
+#               [--run optical|charge|both] [--kind pressure|voltage]
+#               [--rebin-x on|off] [--no-plot]
 #
 # Analyses an already unzipped dataset. To unzip an uploaded ZIP first:
 #   ./unzip.sh example.zip path/to/data     -> path/to/data/example/
@@ -13,7 +14,7 @@ BUILD="${WARTPC_BUILD:-$REPO/build}"
 usage() {
   cat <<EOF
 Usage: $(basename "$0") <dataset_dir> <output_dir> [--run optical|charge|both]
-                         [--kind pressure|voltage] [--no-plot]
+                         [--kind pressure|voltage] [--rebin-x on|off] [--no-plot]
 
   <dataset_dir>   unzipped dataset folder (with optical/ and/or charge/);
                   use unzip.sh first to unzip an uploaded ZIP
@@ -21,6 +22,8 @@ Usage: $(basename "$0") <dataset_dir> <output_dir> [--run optical|charge|both]
   --run WHAT      which analysis to run: optical, charge or both (default: both)
   --kind K        pressure or voltage: marker type in the plots (default: guessed
                   from the dataset name, e.g. pressure-pass-06 or prp*)
+  --rebin-x on|off  optical: rebinX(2), merge neighbouring X pixels in pairs for
+                  the 2D fit and the X sideband fits (default: off = Matt's original)
   --no-plot       skip the PLOT_GUIDE plots (made in <name>_results/plots)
   -h, --help      show this help
 EOF
@@ -41,6 +44,10 @@ while [[ $# -gt 0 ]]; do
     --kind)
       [[ $# -ge 2 && ( "$2" == pressure || "$2" == voltage ) ]] || die "--kind must be pressure or voltage"
       kind="$2"; shift 2 ;;
+    --rebin-x)
+      [[ $# -ge 2 && ( "$2" == on || "$2" == off ) ]] || die "--rebin-x must be on or off"
+      [[ "$2" == on ]] && export WARTPC_REBIN_X=1 || export WARTPC_REBIN_X=0
+      shift 2 ;;
     -*) usage >&2; die "unknown option: $1" ;;
     *)
       if [[ -z "$name" ]]; then name="$1"
@@ -89,6 +96,7 @@ echo "# workflow started $(date '+%Y-%m-%d %H:%M:%S') on $(hostname)"
 echo "# command: $cmdline"
 echo "# dataset: $dataset"
 echo "# run:     ${steps[*]}"
+echo "# rebin-x: $([[ "${WARTPC_REBIN_X:-0}" == 1 ]] && echo on || echo off) (optical)"
 echo "# log:     $log"
 
 # 4. Analysis

@@ -114,7 +114,8 @@ initial_guess = (10E+3, x_max, y_max, 1.0, 1.0,0.,0.)#amp,xmean,ymean,xsig,ysig,
 
 twoD_Gaussian((yFit,xFit), *initial_guess).shape
 
-# Merge adjacent X columns only for the 2D Gaussian fit.
+# Merge adjacent X columns (rebinX(2)) for the 2D Gaussian fit; the X
+# projection is rebinned the same way below, before the sideband fits.
 fit_tot = perChipTOT[:, 0::2] + perChipTOT[:, 1::2]
 fit_y, fit_x_bin = np.indices(fit_tot.shape)
 fit_x = 2 * fit_x_bin + 0.5
@@ -144,6 +145,12 @@ ysig_proj=np.sqrt(xsig**2*np.sin(fig_theta)**2+ysig**2 * np.cos(fig_theta)**2)
 
 tot_x_collapse = np.ascontiguousarray(np.sum(perChipTOT[:,:], axis=0),dtype=np.float64)/1E6
 hit_x_collapse = np.sum(perChipHIT[:,:], axis=0)
+
+# --- rebinX(2) before the sideband fit (added): merge the X projection into
+# 128 bins of 2 pixels (0+1, 2+3, ...), placed at the pair centre 2k+0.5, so
+# the background polynomial is fitted to the 128-bin projection.
+tot_x_collapse = np.ascontiguousarray(tot_x_collapse[0::2] + tot_x_collapse[1::2])
+hit_x_collapse = hit_x_collapse[0::2] + hit_x_collapse[1::2]
 
 tot_y_collapse = np.ascontiguousarray(np.sum(perChipTOT[:,:], axis=1),dtype=np.float64)/1E6
 hit_y_collapse = np.sum(perChipHIT[:,:], axis=1)
@@ -200,8 +207,11 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
 
     xpos_3sig=[]
 
-    for mm in range (0,256):
-        xpos_3sig=np.append(xpos_3sig,mm)
+    if len(ycomp_3sig) == 128:   # rebinX(2) projection: pair centres
+        xpos_3sig = 2.0 * np.arange(128) + 0.5
+    else:
+        for mm in range (0,256):
+            xpos_3sig=np.append(xpos_3sig,mm)
     
     sig3_full=[]
     sig3_full_bins=[]
@@ -288,6 +298,8 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
     latex_ID.SetNDC()
     latex_ID.SetTextSize(0.03)
     latex_ID.DrawLatex(0.15, 0.85, f"ID: {ID}")
+    if axis == 0:
+        latex_ID.DrawLatex(0.15, 0.80, f"RebinX(2): {len(ycomp_3sig)} bins")
     
     data_sig3.Draw("PE SAME")
     dat_fit_sig3.Draw("SAME")
@@ -308,7 +320,8 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
         bkg_est=dat_fit_sig3.Eval(sig3_full_bins[yy])#var0+var1*sig3_full_bins[yy]+var2*sig3_full_bins[yy]**2+var3*sig3_full_bins[yy]**3#+var4*sig3_full_bins[yy]
         sig3_full[yy]=sig3_full[yy]-bkg_est
     
-    ADU3=sum(sig3_full)/exposure
+    integral = sum(sig3_full)
+    ADU3 = integral / exposure
 
     #print(sum(sig3_full))
     #print(exposure)
@@ -348,6 +361,8 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
     latex_ID.SetNDC()
     latex_ID.SetTextSize(0.03)
     latex_ID.DrawLatex(0.15, 0.85, f"ID: {ID}")
+    if axis == 0:
+        latex_ID.DrawLatex(0.15, 0.80, f"RebinX(2): {len(ycomp_3sig)} bins")
     
     canvas_signal3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_signal.png")
     canvas_signal3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_signal.eps")
@@ -357,7 +372,7 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
     del canvas_signal3
 
     out = pd.DataFrame([[str(signal_sig)+"to"+str(sideband_sig)],[ADU3]])
-    raw = pd.DataFrame([[str(signal_sig)+"to"+str(sideband_sig)],[sum(sig3_full)]])
+    raw = pd.DataFrame([[str(signal_sig)+"to"+str(sideband_sig)],[integral]])
 
     out.T.to_csv(csvfolder+"/integrals.csv", mode="a", index=False, header=False)
     raw.T.to_csv(csvfolder+"/raw.csv", mode="a", index=False, header=False)

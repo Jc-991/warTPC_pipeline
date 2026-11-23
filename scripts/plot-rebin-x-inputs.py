@@ -21,14 +21,14 @@ def save_comparison(run, destination):
     rebinned = original[:, 0::2] + original[:, 1::2]
     fig, axes = plt.subplots(2, 3, figsize=(13, 8), layout="constrained")
     for row, (image, width, title) in enumerate(
-        [(original, 1, "Original"), (rebinned, 2, "X rebinned by 2")]
+        [(original, 1, "Unrebinned fit input"), (rebinned, 2, "X-rebinned fit input")]
     ):
         map_ax, x_ax, y_ax = axes[row]
         heatmap = map_ax.imshow(
             image, extent=(-0.5, 255.5, 255.5, -0.5),
             interpolation="nearest", vmin=0, vmax=rebinned.max(),
         )
-        fig.colorbar(heatmap, ax=map_ax, label="Summed ToT per bin")
+        fig.colorbar(heatmap, ax=map_ax, label=f"Summed ToT per {width}×1 pixel bin")
         map_ax.set(title=f"{title} · 2D ToT", xlabel="X pixel", ylabel="Y pixel")
         x_ax.stairs(image.sum(axis=0) / 1e6, np.arange(0, 257, width) - 0.5)
         y_ax.stairs(image.sum(axis=1) / 1e6, np.arange(257) - 0.5)

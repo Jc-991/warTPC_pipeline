@@ -74,7 +74,8 @@ Notes:
 ## workflow.sh
 
 ```
-./workflow.sh <dataset_dir> <output_dir> [--run optical|charge|both] [--kind pressure|voltage] [--no-plot]
+./workflow.sh <dataset_dir> <output_dir> [--run optical|charge|both] [--kind pressure|voltage]
+              [--rebin-x on|off] [--no-plot]
 ```
 
 | Argument / option | Meaning |
@@ -83,6 +84,7 @@ Notes:
 | `<output_dir>` | Results go to `<output_dir>/<name>_results/`, where `<name>` is the dataset folder's name. Created if missing |
 | `--run optical\|charge\|both` | Which analysis to run. Default `both`. With `optical` or `charge`, a missing `optical/` or `charge/` folder counts as a failure; with `both`, a missing folder is just skipped |
 | `--kind pressure\|voltage` | Whether this is a pressure or a voltage dataset, which sets the plot markers. Default: guessed from the dataset name (`pressure-pass-*`, `prp*`, `voltage-run-*`, `vr*`). If the guess fails, diamonds are used |
+| `--rebin-x on\|off` | rebinX(2) in the optical analysis: neighbouring X pixels merged in pairs for the 2D Gaussian fit **and** for the X projection before the sideband fits (see [rebinX(2)](#rebinx2-switch---rebin-x-onoff)). Default `off` = Matt's original analysis |
 | `--no-plot` | Skip the plotting step |
 | `-h, --help` | Show help |
 
@@ -131,7 +133,8 @@ ones that failed) without rerunning the whole dataset.
 ```
 
 ```
-./optical-analysis.sh <dataset_dir> <output_dir> [--runs LIST] [--kind pressure|voltage] [--no-plot]
+./optical-analysis.sh <dataset_dir> <output_dir> [--runs LIST] [--kind pressure|voltage]
+                      [--rebin-x on|off] [--no-plot]
 ./optical-analysis.sh <dataset_dir> --list
 ```
 
@@ -141,6 +144,7 @@ ones that failed) without rerunning the whole dataset.
 | `--list` | Only list the runs with their numbers |
 | `--kind pressure\|voltage` | Marker type in the plots |
 | `--analysis FILE` | Use FILE instead of `blackbox/optical-analysis.py`, e.g. `../blackbox/optical-analysis-rebin-x.py` |
+| `--rebin-x on\|off` | rebinX(2) in the optical analysis: neighbouring X pixels merged in pairs for the 2D Gaussian fit **and** for the X projection before the sideband fits (see [rebinX(2)](#rebinx2-switch---rebin-x-onoff)). Default `off` = Matt's original analysis |
 | `--rebin N` | Test: merge N×N pixels (N = 2, 4, 8, 16) before the 2D Gaussian fit. The rebinned map and slices are printed too, and the fit result is converted back to pixel units, so the rest of the analysis is unchanged. Default 1 = no rebinning |
 | `--no-plot` | Skip the plots |
 
@@ -199,20 +203,19 @@ The `plot` section of the main [README](../README.md#plot) describes each file.
 
 ## 2D images and X/Y projections
 
-`plots/optical_per_run/<run>/` has exactly two plots per run:
+`plots/optical_per_run/<run>/` has exactly four plots per run, all from the
+4to8 setting (signal to 4σ, sideband to 8σ) with the 2nd-degree background
+fit. It is the same four whether `--rebin-x` is on or off (with `on`, the X
+plot has 128 bins):
 
-| File | What it shows |
-|---|---|
-| `2D_ToT_before_fit.png` | Integrated ToT map before the 2D Gaussian fit (linear colour scale); `+` marks the peak (hottest pixel) |
-| `xy_slices_before_fit.png` | X slice (pixel row through the peak) and Y slice (pixel column through the peak) as histograms, linear y, before any fit or background subtraction |
+| File | What it shows | Copied from `optical/<run>/` |
+|---|---|---|
+| `2D_integrated_ToT.png` | Integrated ToT image with the 2D Gaussian fit contours and the X signal/sideband edges | `signal-integral_x/2nd_degree/4to8/ToT-image.png` |
+| `x_projection_signal.png` | X projection after background subtraction | `signal-integral_x/2nd_degree/4to8/4to8_signal.png` |
+| `y_projection_signal.png` | Y projection after background subtraction | `signal-integral_y/2nd_degree/4to8/4to8_signal.png` |
+| `combined_integral_distribution.png` | Stacked X and Y signal integrals of all 60 settings; its mean is the run's S_O | `Total-Stacked-signal-integral.png` |
 
-Both are made before the 2D fit and the sideband fit, so they exist for every
-run, even ones that fail later.
-
-With `--rebin 2` (rebinning test), each run also gets
-`2D_ToT_before_fit_rebin2.png` and `xy_slices_before_fit_rebin2.png`: the same
-plots after merging 2×2 pixels, i.e. the map the 2D fit then uses. The slices are taken through the hottest pixel,
-the only peak known before the 2D fit.
+A run that failed has none of these; `plots/status.txt` says why (see below).
 
 Everything else stays in `optical/<run>/`:
 - `diagnostics/`, made before the 2D fit: the map with slices
@@ -229,9 +232,9 @@ Everything else stays in `optical/<run>/`:
 **If a run failed,** `plots/status.txt` gives the reason, and the matching note
 is in `optical/<run>/diagnostics/`:
 - `no_hits.txt`: the HDF5 file has no pixel hits.
-- `fit_failed.txt`: the 2D fit failed. Look at the two plots in
-  `optical_per_run/<run>/`, e.g. for a single hot pixel holding most of the
-  ToT, or no clear light spot.
+- `fit_failed.txt`: the 2D fit failed. Look at `diagnostics/ToT-image-raw.png`
+  and `diagnostics/projections-raw.png`, e.g. for a single hot pixel holding
+  most of the ToT, or no clear light spot.
 - `sideband_failed.txt`: the 2D fit worked but the sideband step crashed. It
   names the setting; look at `sideband_regions/regions.csv` and the region plot
   for that setting, e.g. a sideband running off the chip or too few sideband
@@ -275,31 +278,51 @@ After a `workflow.sh` run, check these files in this order:
 3. `plots/warnings.txt`: settings-ID mismatches and clipped error bars.
 4. `plots/comparisons/notes.csv`: excluded and provisional points.
 
-## Matt's analysis with rebinX(2): optical-rebin-x.sh
+## rebinX(2) switch: --rebin-x on|off
 
-`blackbox/optical-analysis-rebin-x.py` is Matt's original Blackbox
-`optical-analysis.py` with one change: the 2D Gaussian fit uses the ToT map
-with neighbouring X columns merged (rebinX(2), 256×256 → 256×128). The fit
-runs in pixel coordinates, and amplitude and offset are converted back to
-per-pixel values, so everything after the fit is Matt's code unchanged. (It has
-none of this project's diagnostics.)
+`workflow.sh` and `optical-analysis.sh` take `--rebin-x on` (default `off`).
+It sets `WARTPC_REBIN_X=1` for `blackbox/optical-analysis.py`, which then
+merges neighbouring X pixels in pairs (columns 0+1, 2+3, ...) in two places:
+1. the 2D Gaussian fit uses the 256 (Y) × 128 (X) ToT map. The fit runs in
+   pixel coordinates (bin centre x = 2k + 0.5), and amplitude and offset are
+   converted back to per-pixel values;
+2. the X projection is merged into 128 bins **before** the sideband
+   background fits, so the polynomials are fitted to, and the signal is
+   integrated over, 128 X bins. The X plots in `signal-integral_x/` say
+   "RebinX(2): 128 bins". The Y projection keeps 256 bins.
+
+With `off`, the analysis is exactly Matt's original (checked on vr22-07: all
+60 integrals identical). On vr22-07, `on` moves the X integrals by about
+0.02–0.07 and the run's S_O from 0.052 to 0.075.
+
+```bash
+./workflow.sh <dataset_dir> <output_dir> --run optical --rebin-x on
+./optical-analysis.sh <dataset_dir> <output_dir> --runs vr22-07 --rebin-x on
+```
+
+Use a different `<output_dir>` for `on` and `off`, so the two can be compared.
+The run's log header (`# rebin-x: on`) and `diagnostics/fit_parameters.txt`
+(last line) record which was used. `--rebin-x on` cannot be combined with
+`--rebin N`.
+
+### optical-rebin-x.sh
+
+`optical-analysis.sh ... --rebin-x on`, followed by two comparisons:
 
 ```bash
 ./optical-rebin-x.sh <dataset_dir> <output_dir> --runs vr22-07 --kind voltage
 ```
 
 Options are those of `optical-analysis.sh` (`--runs`, `--list`, `--kind`,
-`--no-plot`). It:
-1. runs `optical-analysis-rebin-x.py` on the chosen runs into
-   `<output_dir>/<name>_results/` (same selection, logs and plots as
-   `optical-analysis.sh`);
-2. saves the fit inputs, original vs X-rebinned map and projections, for every
+`--no-plot`). After the analysis it:
+1. saves the fit inputs, original vs X-rebinned map and projections, for every
    run: `rebin_x_inputs/<run>-before-fit.png`;
-3. fits each run both ways and lists the centres, widths and which
+2. fits each run both ways and lists the centres, widths and which
    signal/sideband regions change: `rebin_x_fit_check/<run>.txt`.
 
-Use a different `<output_dir>` from your normal runs, so the S_O results
-(`optical/<run>/integral.csv`) can be compared.
+`blackbox/optical-analysis-rebin-x.py` is the same rebinX(2) analysis as a
+standalone copy of Matt's script (without this project's diagnostics); the
+switch above does not need it.
 
 `optical-analysis.sh --analysis FILE` runs any other version of the optical
 analysis the same way.
@@ -347,6 +370,7 @@ from whatever is in the results folder, so:
 | `WARTPC_BLACKBOX` | `<repo>/blackbox` | `workflow.sh` | Other Blackbox scripts and tools to use. The folder must contain `optical_run.sh` / `charge_run.sh` next to the tools, so the original `~/warTPC/Blackbox` does not work here |
 | `BLACKBOX_SETUP` | bundled `setup_blackbox.sh` | `workflow.sh` | Environment script that loads the Python/ROOT modules |
 | `WARTPC_PYTHON` | `python3` | `workflow.sh` | Python used by `plot` |
+| `WARTPC_REBIN_X` | `0` | `optical-analysis.py` | `1` = rebinX(2); set by `--rebin-x on` |
 
 ## Common problems
 

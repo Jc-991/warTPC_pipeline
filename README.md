@@ -29,7 +29,7 @@ warTPC_pipeline/
 ├── scripts/unzip.sh        unzip an uploaded ZIP into a data folder
 ├── scripts/workflow.sh     analyse an unzipped dataset: optical, charge, plots
 ├── scripts/optical-analysis.sh  optical analysis of chosen runs only
-├── scripts/optical-rebin-x.sh   Matt's optical analysis with rebinX(2) for the 2D fit, plus comparisons
+├── scripts/optical-rebin-x.sh   optical-analysis.sh --rebin-x on, plus comparisons
 ├── scripts/plot-rebin-x-inputs.py, check-rebin-x-fit.py   comparisons used by optical-rebin-x.sh
 ├── scripts/workflow.md     usage and troubleshooting for the scripts above
 ├── pipeline/pipeline.py    full optical + V50 pipeline
@@ -41,7 +41,7 @@ warTPC_pipeline/
     ├── setup_blackbox.sh       loads the cluster modules
     ├── tpx3dump                TPX3 -> HDF5 converter (Linux x86-64 binary)
     ├── optical-analysis.py
-    ├── optical-analysis-rebin-x.py   Matt's optical-analysis.py with rebinX(2) for the 2D fit
+    ├── optical-analysis-rebin-x.py   standalone copy of Matt's script with rebinX(2) (the --rebin-x switch does the same)
     ├── waveform-integrator.py
     └── waveform-plotting.py
 ```
@@ -102,6 +102,7 @@ cd scripts
 ./workflow.sh ~/warTPC/data/example ~/warTPC/results                   # optical, charge, plots
 ./workflow.sh ~/warTPC/data/example ~/warTPC/results --no-plot         # same without the plots
 ./workflow.sh ~/warTPC/data/example ~/warTPC/results --run charge      # only charge (or --run optical)
+./workflow.sh ~/warTPC/data/example ~/warTPC/results_rx --rebin-x on   # optical with rebinX(2)
 ./optical-analysis.sh ~/warTPC/data/example ~/warTPC/results --runs 2,5-7  # redo chosen optical runs
 ```
 
@@ -241,7 +242,7 @@ Set `WARTPC_PYTHON` to choose the Python interpreter (default `python3`).
 <plot_dir>/
 ├── run_conditions.csv/.md   V0–V4, pressure, methane fraction, exposure, V43+21/P, ID mismatches
 ├── results.csv              S_O, RMS, V50, width, event counts, ratio, review flags per run
-├── optical_per_run/<run>/   2D_ToT_before_fit.png and xy_slices_before_fit.png only
+├── optical_per_run/<run>/   4 plots (4to8, 2nd degree): ToT image, x/y projection, stacked integral
 │                            (made before the fits, so present for every run)
 ├── v50_distributions/       one histogram per run, with peak estimate, bin width and counts
 ├── summary_plots/           optical and V50: streaming + physics, linear + log;
@@ -283,14 +284,17 @@ original Blackbox.
 | `perChipTOT.npy`, `perChipHIT.npy` | The 256×256 ToT and hit-count maps, for `np.load` |
 | `fit_parameters.txt` | Fit result with uncertainties, plus flags: non-finite values, centre off the chip, width under half a pixel or over half the chip |
 | `fit_failed.txt` | The fit's error message and starting values, if it failed |
+| `*-rebinX2.*` | With `--rebin-x on`: the map and slices with X pixels merged in pairs (256 × 128), the map the 2D fit uses |
 | `*-rebin<N>.*` | With `WARTPC_REBIN=N` (or `optical-analysis.sh --rebin N`): the map and slices after merging N×N pixels; the 2D fit then runs on that map and its result is converted back to pixel units |
 | `sideband_regions/<s>to<b>.png`, `sideband_regions/regions.csv` | After the 2D fit, before the sideband fit: X and Y projections with the signal region and the sideband points for each of the 10 settings, and a table flagging impossible regions |
 | `sideband_failed.txt` | Which sideband setting crashed, and the error |
 | `no_hits.txt` | Written if the HDF5 file has no pixel hits |
 
-`plot` copies `ToT-image-raw.png` and `projections-raw.png` into
-`optical_per_run/<run>/` (as `2D_ToT_before_fit.png` and
-`xy_slices_before_fit.png`) and lists the failure reasons in `status.txt`.
+These stay in `optical/<run>/diagnostics/`; `plot` lists the failure reasons
+in `status.txt`. `optical_per_run/<run>/` gets only four plots, from the 4to8
+setting with the 2nd-degree background: `2D_integrated_ToT.png`,
+`x_projection_signal.png`, `y_projection_signal.png` and
+`combined_integral_distribution.png`.
 
 ## run_analysis (full pipeline)
 

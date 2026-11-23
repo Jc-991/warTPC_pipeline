@@ -13,7 +13,8 @@ BUILD="${WARTPC_BUILD:-$REPO/build}"
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") <dataset_dir> <output_dir> [--runs LIST] [--kind pressure|voltage] [--no-plot]
+Usage: $(basename "$0") <dataset_dir> <output_dir> [--runs LIST] [--kind pressure|voltage]
+                         [--rebin-x on|off] [--no-plot]
        $(basename "$0") <dataset_dir> --list
 
   <dataset_dir>   unzipped dataset folder (with optical/<run>/)
@@ -27,6 +28,8 @@ Usage: $(basename "$0") <dataset_dir> <output_dir> [--runs LIST] [--kind pressur
                   without --runs you are asked interactively
   --list          only list the runs with their numbers
   --kind K        pressure or voltage: marker type in the plots
+  --rebin-x on|off  rebinX(2): merge neighbouring X pixels in pairs for the 2D
+                  fit and the X sideband fits (default: off = Matt's original)
   --rebin N       test: merge N x N pixels before the 2D fit (N = 2, 4, ...;
                   default 1 = no rebinning); also prints the rebinned plots
   --analysis FILE use FILE instead of blackbox/optical-analysis.py, e.g.
@@ -49,6 +52,10 @@ while [[ $# -gt 0 ]]; do
     --rebin)
       [[ $# -ge 2 && "$2" =~ ^(1|2|4|8|16)$ ]] || die "--rebin must be 1, 2, 4, 8 or 16"
       export WARTPC_REBIN="$2"; shift 2 ;;
+    --rebin-x)
+      [[ $# -ge 2 && ( "$2" == on || "$2" == off ) ]] || die "--rebin-x must be on or off"
+      [[ "$2" == on ]] && export WARTPC_REBIN_X=1 || export WARTPC_REBIN_X=0
+      shift 2 ;;
     --kind)
       [[ $# -ge 2 && ( "$2" == pressure || "$2" == voltage ) ]] || die "--kind must be pressure or voltage"
       kind="$2"; shift 2 ;;
@@ -117,6 +124,7 @@ for tok in ${selection//,/ }; do
   fi
 done
 (( ${#chosen[@]} > 0 )) || die "nothing selected"
+[[ "${WARTPC_REBIN_X:-0}" != 1 || "${WARTPC_REBIN:-1}" == 1 ]] || die "--rebin-x on and --rebin cannot be combined"
 
 if [[ -n "$analysis" ]]; then
   [[ -f "$analysis" ]] || die "--analysis: $analysis does not exist"
@@ -139,6 +147,7 @@ echo "# optical-analysis started $(date '+%Y-%m-%d %H:%M:%S') on $(hostname)"
 echo "# command: $cmdline"
 echo "# dataset: $dataset"
 echo "# runs:    ${chosen[*]} (${#chosen[@]} of ${#runs[@]})"
+echo "# rebin-x: $([[ "${WARTPC_REBIN_X:-0}" == 1 ]] && echo on || echo off)"
 echo "# rebin:   ${WARTPC_REBIN:-1} (2D fit)"
 echo "# analysis: ${analysis:-blackbox/optical-analysis.py}"
 echo "# log:     $log"

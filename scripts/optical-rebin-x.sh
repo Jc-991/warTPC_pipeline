@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Matt's optical analysis with rebinX(2) for the 2D Gaussian fit.
+# Matt's optical analysis with rebinX(2): X pixels merged in pairs for the 2D
+# Gaussian fit and for the X projection before the sideband fits.
 #
 #   ./optical-rebin-x.sh <dataset_dir> <output_dir> [--runs LIST] [--kind K] [--no-plot]
 #
-# 1. Runs blackbox/optical-analysis-rebin-x.py (Matt's optical-analysis.py whose
-#    2D Gaussian fit uses X columns merged in pairs) on the chosen runs, via
-#    optical-analysis.sh (same run selection, logs, results folder and plots).
+# 1. Runs optical-analysis.sh --rebin-x on (X columns merged in pairs for the
+#    2D fit and the X sideband fits) on the chosen runs (same run selection,
+#    logs, results folder and plots).
 # 2. Saves the fit inputs, original vs X-rebinned, for every run
 #    (scripts/plot-rebin-x-inputs.py) -> <results>/rebin_x_inputs/
 # 3. Compares the original and rebinX fits for every run, including which
@@ -18,16 +19,15 @@ set -uo pipefail
 
 HERE=$(cd -- "$(dirname -- "$0")" && pwd)
 REPO=$(cd -- "$HERE/.." && pwd)
-ANALYSIS="${WARTPC_REBIN_X_ANALYSIS:-$REPO/blackbox/optical-analysis-rebin-x.py}"   # override only for testing
 
 usage() {
   cat <<EOF
 Usage: $(basename "$0") <dataset_dir> <output_dir> [--runs LIST] [--kind pressure|voltage] [--no-plot]
        $(basename "$0") <dataset_dir> --list
 
-Runs Matt's optical analysis with rebinX(2) for the 2D Gaussian fit
-($(basename "$ANALYSIS")) on the chosen runs, then compares the original and
-rebinned fits. Options are those of optical-analysis.sh (see its --help).
+Runs the optical analysis with rebinX(2) for the 2D Gaussian fit and the X
+sideband fits (optical-analysis.sh --rebin-x on) on the chosen runs, then
+compares the original and rebinned 2D fits. Options are those of optical-analysis.sh (see its --help).
 Results: <output_dir>/<name>_results/, plus rebin_x_inputs/ and rebin_x_fit_check/.
 EOF
 }
@@ -35,9 +35,8 @@ die() { echo "$*" >&2; exit 1; }
 
 [[ $# -ge 1 ]] || { usage >&2; exit 2; }
 case "$1" in -h|--help) usage; exit 0 ;; esac
-[[ -f "$ANALYSIS" ]] || die "$ANALYSIS not found"
 for a in "$@"; do
-  [[ "$a" != --analysis ]] || die "--analysis is set by this script"
+  [[ "$a" != --rebin-x && "$a" != --rebin ]] || die "$a is set by this script"
   [[ "$a" != --list ]] || exec "$HERE/optical-analysis.sh" "$@"
 done
 
@@ -57,7 +56,7 @@ dataset="${pos[0]%/}"
 outdir="${pos[1]%/}"
 
 # 1. The analysis
-"$HERE/optical-analysis.sh" "$@" --analysis "$ANALYSIS"
+"$HERE/optical-analysis.sh" "$@" --rebin-x on
 status=$?
 
 results="$(cd "$outdir" 2>/dev/null && pwd)/$(basename "$dataset")_results"
