@@ -42,9 +42,8 @@ OPTICAL_IMAGES = {
 # runs. Optional: older Blackbox versions do not write them.
 OPTICAL_DIAGNOSTICS = {
     'diagnostics/ToT-image-raw.png': '2D_ToT_before_fit.png',
-    'diagnostics/projections-raw.png': 'xy_projections_before_fit.png',
-    'diagnostics/ToT-image-projections.png': '2D_ToT_with_projections.png',
-    'diagnostics/ToT-image-projections-log.png': '2D_ToT_with_projections_log.png',
+    'diagnostics/projections-raw.png': 'xy_slices_before_fit.png',
+    'diagnostics/ToT-image-projections.png': '2D_ToT_with_slices.png',
     'diagnostics/summary.txt': 'ToT_summary.txt',
     'diagnostics/fit_parameters.txt': 'fit_parameters.txt',
     'diagnostics/fit_failed.txt': 'fit_failed.txt',

@@ -202,12 +202,12 @@ folder per run:
 
 | File | What it shows | When it exists |
 |---|---|---|
-| `2D_ToT_before_fit.png` | Integrated ToT map before the 2D Gaussian fit, linear and log colour scale; `+` marks the hottest pixel | Every run |
-| `2D_ToT_with_projections.png`, `2D_ToT_with_projections_log.png` | The same map with its X projection histogram above and Y projection histogram on the right, on shared pixel axes (linear / log scale) | Every run |
+| `2D_ToT_before_fit.png` | Integrated ToT map before the 2D Gaussian fit (linear colour scale); `+` marks the peak (hottest pixel) | Every run |
+| `2D_ToT_with_slices.png` | The same map with the **X slice through the peak** (the pixel row at the peak) above and the **Y slice** (the pixel column at the peak) on the right, on shared pixel axes. Dashed lines on the map show where the slices are taken | Every run |
 | `xy_projections_sideband_regions_4to8.png` | X and Y projections as the sideband step uses them: signal region, sideband limits and the sideband points the background polynomial is fitted to, **before** that fit (setting `4to8`) | Runs where the 2D fit worked, even if the sideband step then fails |
 | `sideband_regions.csv` | For every setting and axis: the regions, the number of sideband points, and problems such as a sideband running off the chip | Same |
 | `sideband_failed.txt` | Which sideband setting crashed (polynomial degree, axis, `<s>to<b>`) and the error | Runs whose sideband step crashed |
-| `xy_projections_before_fit.png` | X and Y projection histograms (summed ToT per pixel column / row, 256 bins) before any fit or background subtraction, linear and log y | Every run |
+| `xy_slices_before_fit.png` | The X and Y slices through the peak as histograms (one bin per pixel, linear y), before any fit or background subtraction | Every run |
 | `2D_integrated_ToT.png` | Final ToT image with the fit contours and the signal/sideband lines | Runs where the 2D fit worked |
 | `x_projection_before_subtraction.png`, `y_projection_before_subtraction.png` | Full projection with the sideband points and the fitted polynomial background, i.e. just before subtraction | Runs where the 2D fit worked |
 | `x_projection_signal.png`, `y_projection_signal.png` | Projection after background subtraction | Runs where the 2D fit worked |
@@ -215,12 +215,19 @@ folder per run:
 | `ToT_summary.txt` | Hits, pixels hit, total ToT, and the hottest pixel's share | Every run |
 | `fit_parameters.txt` or `fit_failed.txt` | 2D fit result with warning flags, or the reason it failed | Every run |
 
+All plots use a linear scale. The slices are taken through the hottest pixel,
+which is the only peak known before the 2D fit; if a hot pixel is the hottest,
+the slices go through it rather than the light spot, which the plots make
+obvious. The sideband-region plots instead show the full summed projections,
+because that is what the sideband fit uses.
+
 The fit-dependent plots use the `2nd_degree` background and the `4to8`
 signal/sideband setting.
 
 The originals, including all other settings, are in `optical/<run>/`:
-- before the 2D fit: `diagnostics/ToT-image-raw.png`, `diagnostics/ToT-image-projections(-log).png`,
-  `diagnostics/projections-raw.png`
+- before the 2D fit: `diagnostics/ToT-image-raw.png`, `diagnostics/ToT-image-projections.png`
+  (map with slices), `diagnostics/projections-raw.png` (slices); the numbers,
+  including the full row/column sums, are in `projections-raw.csv`
 - after the 2D fit but before the sideband fit: `diagnostics/sideband_regions/<s>to<b>.png`
   for all 10 settings, and `regions.csv`
   (numbers in `projections-raw.csv`, maps in `perChipTOT.npy`, `perChipHIT.npy`)

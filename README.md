@@ -224,8 +224,8 @@ Set `WARTPC_PYTHON` to choose the Python interpreter (default `python3`).
 ├── results.csv              S_O, RMS, V50, width, event counts, ratio, review flags per run
 ├── optical_per_run/<run>/   ToT image, x/y projections, combined integral distribution,
 │                            x/y_projection_before_subtraction.png (with background fit),
-│                            plus 2D_ToT_before_fit.png, 2D_ToT_with_projections(_log).png,
-│                            xy_projections_before_fit.png
+│                            plus 2D_ToT_before_fit.png, 2D_ToT_with_slices.png,
+│                            xy_slices_before_fit.png
 │                            and fit_parameters.txt / fit_failed.txt
 ├── v50_distributions/       one histogram per run, with peak estimate, bin width and counts
 ├── summary_plots/           optical and V50: streaming + physics, linear + log;
@@ -260,9 +260,9 @@ original Blackbox.
 
 | File | Contents |
 |---|---|
-| `ToT-image-raw.png` | The integrated ToT map on linear and log colour scales; `+` marks the hottest pixel, where the fit starts |
-| `ToT-image-projections.png`, `ToT-image-projections-log.png` | The ToT map with its X projection histogram above and Y projection histogram to the right, on shared pixel axes |
-| `projections-raw.png`, `projections-raw.csv` | X and Y projection histograms (summed ToT per column / row) before any fit or background subtraction, on linear and log y |
+| `ToT-image-raw.png` | The integrated ToT map (linear colour scale); `+` marks the hottest pixel, where the fit starts |
+| `ToT-image-projections.png` | The ToT map with the X slice through the peak (pixel row) above and the Y slice (pixel column) to the right, on shared pixel axes; linear scale |
+| `projections-raw.png`, `projections-raw.csv` | The X and Y slices through the peak as histograms, before any fit or background subtraction; the CSV also has the full row/column sums |
 | `summary.txt` | Hits, pixels hit, total ToT, and the hottest pixel's share of the total (a large share means a hot pixel) |
 | `perChipTOT.npy`, `perChipHIT.npy` | The 256×256 ToT and hit-count maps, for `np.load` |
 | `fit_parameters.txt` | Fit result with uncertainties, plus flags: non-finite values, centre off the chip, width under half a pixel or over half the chip |
