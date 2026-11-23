@@ -1,0 +1,6 @@
+build/
+compile_commands.json
+.DS_Store
+__pycache__/
+blackbox/tpx3dump
+blackbox/tpx3dump.d

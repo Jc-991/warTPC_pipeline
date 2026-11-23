@@ -1,0 +1,70 @@
+WARWICK TPC — EXECUTABLE ANALYSIS PIPELINE
+
+Purpose
+Run one command for a new extracted dataset or ZIP on an authorised cluster compute session. The pipeline creates a new timestamped results folder and does not modify the original dataset or the Blackbox scripts. No folder watcher is installed.
+
+Folder layout
+  run_analysis        Entry point for the full optical + V50 pipeline (below).
+  pipeline/           pipeline.py, the full pipeline.
+  reference/          history.csv (comparison baseline) and figure26_reference.png.
+  blackbox/           Blackbox scripts and tools, kept together because the scripts
+                      call ./tpx3dump and python3 <script>.py from their own folder:
+                      charge_run.sh, optical_run.sh, blackbox1.sh, setup_blackbox.sh,
+                      tpx3dump (Linux binary), optical-analysis.py,
+                      waveform-integrator.py, waveform-plotting.py.
+  src/runner.cpp      Source of the `charge` and `optical` commands.
+  CMakeLists.txt      Builds those commands into build/.
+
+charge / optical commands (run one Blackbox script on a dataset)
+Build on the cluster (a Mac build will not run there):
+  cd ~/warTPC/warTPC_pipeline && cmake -S . -B build && cmake --build build
+Run:
+  build/optical -i ~/warTPC/pressure-pass-05 -o ~/warTPC/results/pp05
+  build/charge  -i ~/warTPC/pressure-pass-05 -o ~/warTPC/results/pp05
+The dataset is mirrored into the output folder (raw .tpx3 and waveforms.csv are
+symlinked, small files copied) and blackbox/<mode>_run.sh runs on that mirror, so
+the input is never written to. Each run is checked for integral.csv (optical) or
+signal.csv (charge); failures are listed in <output>/<mode>_status.txt and the
+full output is in <output>/logs/. Use --blackbox DIR to use other Blackbox code,
+--setup FILE / --no-setup to control the environment script. See -h.
+
+Upload once, from Mac Terminal:
+  scp -r ~/Desktop/PhD/projects/warTPC/warTPC_pipeline \
+    phrvbh@hammer.scrtp.warwick.ac.uk:~/warTPC/
+
+On the cluster, from an authorised compute session, make the command executable:
+  chmod +x ~/warTPC/warTPC_pipeline/run_analysis
+The command sources blackbox/setup_blackbox.sh, then ~/warTPC/Blackbox/setup_blackbox.sh when present. Set BLACKBOX_SETUP to choose another setup script.
+
+Analyse an already extracted dataset (replace 05 with your dataset):
+  ~/warTPC/warTPC_pipeline/run_analysis \
+    ~/warTPC/pressure-pass-05 \
+    --blackbox ~/warTPC/Blackbox \
+    --results ~/warTPC/analysis_results
+
+Alternatively, the first argument can be the path to a ZIP (it is extracted into the new output folder, so allow enough disk space). The Blackbox directory must contain the Linux tpx3dump and optical-analysis.py used on the cluster. Runs are processed sequentially and can take substantial time. Use an authorised compute allocation; tmux alone does not grant one. If using batch, obey the cluster's storage and scheduler requirements. No persistent watcher or scheduled process is created.
+
+The final line prints the output folder. It contains:
+  summary_plots/       Optical and V50 streaming/physics: linear and log; O/V50: linear.
+  optical_per_run/     Four selected optical images in one folder per completed run.
+  v50_distributions/   One raw channel B histogram per run.
+  comparisons/         Physics comparisons against bundled historical values and previous runs of this pipeline, plus the calibrated Fig. 26 overlay and a CSV of points outside its axes.
+  results.csv          Numerical results, statuses, run settings and V50 flags.
+  status.txt           All missing inputs, failures and missing images.
+  logs/                Per-run conversion and analysis logs.
+  work/                Generated per-run optical output and HDF5; may be large.
+
+Inputs: settings.csv and rawdata_000000.tpx3 in optical/<run>/; pulseheights.csv in charge/<run>/. No Blackbox p1 charge analysis is run: current supervisor convention is S_C = V50.
+
+By default prp2-04 and prp3-04 are excluded from summary/comparison plots as previously requested; raw values and per-run diagnostics remain. Override with --exclude followed by a comma-separated list. Use --exclude '' to include all.
+
+Comparison baseline is the bundled history.csv (voltage runs 18–20 November and pressure passes 1–5 as last recorded). Whenever a dataset has been processed by this pipeline, its latest pipeline execution supersedes that dataset's baseline. Existing earlier manual plots/files are NOT scanned or modified. Review and update reference/history.csv if earlier results change. The Fig. 26 source is a raster image with previously drawn 18/19 voltage data; coordinates are calibrated to that image and points outside its axes are listed, not plotted. Optical-only reference does not contain later voltage runs unless present in the bundled history. The existing image must be 2750x2000; use --paper-overlay to select a different calibrated image of exactly this size.
+
+V50 estimates follow charge_signal_1.ipynb: 199 bins, 0–6000 mV; no actual Gaussian fit. Estimated widths are peak widths, not automatically uncertainties on peak position. Ratios use optical RMS and V50 estimated widths propagated assuming independent inputs; these are indicative spreads rather than a full uncertainty. Missing/two-peak failure or notebook-assigned zero is not imputed. Review flags and out-of-range counts appear in results.csv, and open markers indicate V50 review flags. Check status.txt and individual fits before sharing. Pressure and V50 units follow the settings/code labels and require physical validation.
+
+This pipeline has been tested on simulated input; an actual cluster dataset and scheduler have NOT yet been tested. Preserve the original data. Check available disk space. The script never edits input files, but Blackbox optical scripts delete folders in its isolated output work directory. Output keeps large HDF5 files. If processing ZIP input, output also keeps extracted raw files.
+
+Xianguo updates (22 November):
+- For the V50 peak search, the first histogram bin is excluded from the peak-finding input. If only one peak is found and it meets the existing 20-count threshold, the pipeline plots it as a flagged single-peak fallback; it is not a two-peak fit. Peak widths are estimated from FWHM. The full data remain in the V50 distribution.
+- Summary and physics plot y-axis maximum is 1.1 times the largest plotted central value. Error bars that extend beyond this cap are clipped; plots indicate this and per-dataset warnings.txt lists affected runs. The paper overlay retains the paper image's fixed axes.
+- If a settings file's ID differs from its folder name, the pipeline associates the output with the folder and records the original settings ID plus a warning. Confirm mismatches with the data owner.
