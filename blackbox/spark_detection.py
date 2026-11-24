@@ -75,6 +75,8 @@ def save_tot_spectrum(seconds, tot, time_bins, width, output, removed=None):
                        label=f"Removed hits ({int(removed.sum()):,})")
             ax.set_title("ToT versus arrival time with removed hits marked")
             ax.legend(loc="upper right")
+        max_tot = float(np.max(tot))
+        ax.set_ylim(top=1.1 * max_tot if max_tot > 0 else tot_edges[-1])
         fig.savefig(output, dpi=170)
     finally:
         plt.close(fig)
