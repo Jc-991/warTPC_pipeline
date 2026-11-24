@@ -27,15 +27,23 @@ def save_tot_distribution(tot, output, removed=None):
     try:
         mean = float(np.mean(tot))
         rms = float(np.std(tot))
-        ax.axvspan(mean - 5 * rms, mean + 5 * rms, color="tab:blue", alpha=0.14,
-                   label=f"Mean ± 5 RMS (mean {mean:.1f}, RMS {rms:.1f})")
-        ax.stairs(counts, edges, baseline=None, color="tab:blue", label="All hits before tagging")
-        if removed is not None:
+        lower, upper = mean - 5 * rms, mean + 5 * rms
+        if removed is None:
+            ax.stairs(counts, edges, fill=True, color="tab:blue", label="All hits before tagging")
+        else:
             removed_counts, _ = np.histogram(tot[removed], bins=edges)
-            ax.stairs(removed_counts, edges, baseline=None, color="tab:red",
-                      label=f"Removed by hit-rate cut ({int(removed.sum()):,} hits)")
+            kept_counts = counts - removed_counts
+            ax.stairs(kept_counts, edges, fill=True, color="tab:blue",
+                      label=f"Kept ({int((~removed).sum()):,} hits)")
+            ax.stairs(counts, edges, baseline=kept_counts, fill=True, color="tab:red",
+                      label=f"Removed ({int(removed.sum()):,} hits)")
+        ax.axvline(lower, color="black", linestyle="--", label=f"Mean − 5 RMS ({lower:.1f})")
+        ax.axvline(upper, color="black", linestyle=":", label=f"Mean + 5 RMS ({upper:.1f})")
+        left, right = min(edges[0], lower), max(edges[-1], upper)
+        padding = 0.02 * (right - left)
         ax.set(xlabel="Hit ToT (stored units)", ylabel="Hits per bin",
-               xlim=(edges[0], edges[-1]), yscale="log", title="Hit ToT distribution and spark cut")
+               xlim=(left - padding, right + padding), yscale="log",
+               title="Hit ToT distribution and spark cut")
         ax.legend()
         fig.savefig(output, dpi=170)
     finally:
