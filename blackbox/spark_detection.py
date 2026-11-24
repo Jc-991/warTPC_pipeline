@@ -130,6 +130,7 @@ def spark_cut(toa, tot, report_path, *, mode=None):
         f"Mode: {mode}",
         f"Removal applied: {status}",
         f"Spark count: {sparks}",
+        f"Spark algorithm iterations: {int(cutoff is not None)}",
         "Candidate intervals: 0",
         f"Hits before/kept: {count} / {remaining}",
         f"Hits excluded: {removed}",

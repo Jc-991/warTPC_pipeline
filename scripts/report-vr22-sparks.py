@@ -7,23 +7,29 @@ from pathlib import Path
 import re
 import shutil
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
-
-PLOTS = (
-    "2D_integrated_ToT.png",
-    "combined_integral_distribution.png",
-    "x_projection_signal.png",
-    "y_projection_signal.png",
-    "tot-vs-time-before-sparks.png",
+RUNS = tuple(f"vr22-{number:02d}" for number in range(6, 14))
+PAIRED_PLOTS = (
+    "x_projection_signal.png", "y_projection_signal.png", "combined_integral_distribution.png",
 )
-OPTIONAL_DIAGNOSTICS = ("tot-distribution-before-sparks.png", "tot-vs-time-spark-removal.png")
+DIAGNOSTICS = (
+    "tot-vs-time-before-sparks.png",
+    "tot-distribution-before-sparks.png",
+    "tot-vs-time-spark-removal.png",
+)
 SUMMARY_COLUMNS = (
-    "run", "spark_count", "removal_applied", "exposure_before_s",
+    "run", "spark_count", "spark_algorithm_iterations", "removal_applied", "exposure_before_s",
     "exposure_after_s", "exposure_excluded_s", "S_O_ms", "S_O_norm_ms_per_s",
     "S_O_norm_rms_ms_per_s", "issues",
+)
+TEXT_COLUMNS = (
+    ("runID", "run"),
+    ("S_O", "S_O_ms"),
+    ("original_exposure", "exposure_before_s"),
+    ("number_of_sparks", "spark_count"),
+    ("number_of_sparkAlgo_iterations", "spark_algorithm_iterations"),
+    ("total_spark_exposure_removed", "exposure_excluded_s"),
+    ("exposure_after_spark_removal", "exposure_after_s"),
+    ("S_O^norm", "S_O_norm_ms_per_s"),
 )
 
 
@@ -34,17 +40,36 @@ def write_csv(path, fields, rows):
         writer.writerows(rows)
 
 
-def compare_x(before, after, output, run):
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5), layout="constrained")
-    try:
-        for ax, source, title in zip(axes, (before, after), ("Before spark removal", "After spark removal")):
-            ax.imshow(plt.imread(source))
-            ax.set_title(title)
-            ax.axis("off")
-        fig.suptitle(f"{run} · Background-subtracted X projection")
-        fig.savefig(output, dpi=160)
-    finally:
-        plt.close(fig)
+def write_text_summary(path, rows):
+    with path.open("w", newline="") as handle:
+        handle.write("S_O^norm = S_O / exposure_after_spark_removal\n")
+        writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
+        writer.writerow([label for label, _ in TEXT_COLUMNS])
+        for row in rows:
+            values = (row.get(key, "") for _, key in TEXT_COLUMNS)
+            writer.writerow([f"{value:.12g}" if isinstance(value, float) else value for value in values])
+
+
+def copy_plot(source, destination, issues):
+    if source.is_file():
+        shutil.copy2(source, destination)
+    else:
+        issues.append(f"missing {destination.name}")
+
+
+def copy_run_plots(before_plots, after_plots, diagnostics, destination, issues):
+    """Copy the ten per-run figures with explicit before/after filenames."""
+    name = "2D_integrated_ToT.png"
+    copy_plot(after_plots / name, destination / name, issues)
+    for name in DIAGNOSTICS:
+        source = after_plots / name
+        if not source.is_file():
+            source = diagnostics / name
+        copy_plot(source, destination / name, issues)
+    for name in PAIRED_PLOTS:
+        for phase, folder in (("before", before_plots), ("after", after_plots)):
+            output = destination / f"{Path(name).stem}_{phase}.png"
+            copy_plot(folder / name, output, issues)
 
 
 def main():
@@ -52,12 +77,12 @@ def main():
     parser.add_argument("before", type=Path, help="dataset results directory with spark removal off")
     parser.add_argument("after", type=Path, help="dataset results directory with spark removal on")
     parser.add_argument("output", type=Path, help="new report directory")
+    parser.add_argument("--runs", nargs="+", choices=RUNS, default=RUNS)
     args = parser.parse_args()
     args.output.mkdir(parents=True)
     summary, windows = [], []
 
-    for number in range(6, 14):
-        run = f"vr22-{number:02d}"
+    for run in dict.fromkeys(args.runs):
         cleaned = args.after / "optical" / run
         plots = args.after / "plots" / "optical_per_run" / run
         destination = args.output / "optical_per_run" / run
@@ -79,6 +104,13 @@ def main():
                 row["spark_count"] = int(report["Spark count"])
             else:
                 issues.append("spark count unavailable in this report")
+            if "Spark algorithm iterations" in report:
+                row["spark_algorithm_iterations"] = int(report["Spark algorithm iterations"])
+            elif "ToT cut (strictly greater than)" in report:
+                # Earlier ToT-cut reports omitted the count but used the same single pass.
+                row["spark_algorithm_iterations"] = 1
+            else:
+                issues.append("spark algorithm iteration count unavailable")
             if report["Removal applied"].startswith("rejected"):
                 issues.append(report["Removal applied"])
             intervals = re.findall(r"^Candidate since first hit \(s\): (\S+) to (\S+)$", text, re.M)
@@ -100,31 +132,15 @@ def main():
         except (OSError, ValueError, IndexError, StopIteration) as error:
             issues.append(f"optical integral unavailable: {error}")
 
-        for name in PLOTS:
-            source = plots / name
-            if name == PLOTS[-1] and not source.is_file():
-                source = cleaned / "diagnostics" / name
-            if source.is_file():
-                shutil.copy2(source, destination / name)
-            else:
-                issues.append(f"missing {name}")
-        for name in OPTIONAL_DIAGNOSTICS:
-            diagnostic = plots / name
-            if not diagnostic.is_file():
-                diagnostic = cleaned / "diagnostics" / name
-            if diagnostic.is_file():
-                shutil.copy2(diagnostic, destination / name)
-        before_x = args.before / "plots" / "optical_per_run" / run / "x_projection_signal.png"
-        after_x = plots / "x_projection_signal.png"
-        if before_x.is_file() and after_x.is_file():
-            compare_x(before_x, after_x, destination / "x_projection_before_after.png", run)
-        else:
-            issues.append("missing before/after X projection")
+        before_plots = args.before / "plots" / "optical_per_run" / run
+        copy_run_plots(before_plots, plots, cleaned / "diagnostics", destination, issues)
         row["issues"] = "; ".join(issues)
+        write_text_summary(destination / "run_summary.txt", [row])
         print(f"{run}: spark count {row.get('spark_count', 'unavailable')}"
               + (f" ({row['issues']})" if issues else ""))
 
     write_csv(args.output / "run_summary.csv", SUMMARY_COLUMNS, summary)
+    write_text_summary(args.output / "run_summary.txt", summary)
     write_csv(args.output / "excluded_intervals.csv",
               ("run", "interval", "start_s", "stop_s", "excluded_exposure_s"), windows)
     return int(any(row["issues"] for row in summary))
