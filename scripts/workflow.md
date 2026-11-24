@@ -375,6 +375,10 @@ qualifying hits at most 50 ms apart. These provisional settings come from the
 vr22 spectra. The hit-rate windows used for exposure removal are logged
 separately. To count from saved HDF5 files without rerunning an optical fit,
 run `python3 blackbox/spark_detection.py <run>/output.hdf5`.
+The workflow and selected-run scripts write `spark_counts.csv` at the
+dataset results root. The table includes every optical run in that folder
+and leaves the count blank if no count was recorded. It is also produced
+when spark removal is off or summary plotting is skipped.
 
 The detector flags 10 ms hit-count bins above a local median threshold. It
 excludes the flagged bins plus 10 ms before and 50 ms after, merging overlapping

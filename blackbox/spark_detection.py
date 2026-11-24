@@ -18,6 +18,21 @@ def count_sparks(toa, tot):
     return sum(len(group) >= 2 for group in groups)
 
 
+def save_tot_distribution(tot, output):
+    """Histogram the measured ToT of every original hit."""
+    from matplotlib import pyplot as plt
+
+    counts, edges = np.histogram(tot, bins=128)
+    fig, ax = plt.subplots(figsize=(8, 5), layout="constrained")
+    try:
+        ax.stairs(counts, edges, baseline=None)
+        ax.set(xlabel="Hit ToT (stored units)", ylabel="Hits per bin",
+               yscale="log", title="Hit ToT distribution before spark tagging")
+        fig.savefig(output, dpi=170)
+    finally:
+        plt.close(fig)
+
+
 def save_tot_spectrum(seconds, tot, time_bins, width, output):
     """Plot the unfiltered ToT distribution as a function of run time."""
     from matplotlib import pyplot as plt
@@ -64,6 +79,7 @@ def spark_cut(toa, tot, report_path):
             hits = np.bincount(bins)
             save_tot_spectrum(seconds, tot, len(hits), width,
                               report.with_name("tot-vs-time-before-sparks.png"))
+            save_tot_distribution(tot, report.with_name("tot-distribution-before-sparks.png"))
             baseline = median_filter(hits, size=101, mode="reflect")
             threshold = np.maximum.reduce((
                 np.full(len(hits), 30.0),
@@ -97,25 +113,24 @@ def spark_cut(toa, tot, report_path):
         status = "no (no candidate intervals)"
     else:
         status = f"no ({mode} mode)"
+    sparks = count_sparks(toa, tot)
     lines = [
         f"Mode: {mode}",
         f"Removal applied: {status}",
+        f"Spark count: {sparks}",
         f"Candidate intervals: {len(intervals)}",
         f"Hits before/kept: {count} / {remaining}",
         f"Hits excluded: {removed}",
         f"Exposure before/after (s): {duration:.9g} / {usable:.9g}",
         f"Exposure excluded (s): {excluded:.9g}",
     ]
+    lines.append(f"Spark count rule: at least two hits with ToT >= {SPARK_TOT_THRESHOLD}, grouped across gaps of up to 50 ms")
     if mode != "off":
-        sparks = count_sparks(toa, tot)
-        lines.insert(2, f"Spark count: {sparks}")
-        lines.append(f"Spark count rule: at least two hits with ToT >= {SPARK_TOT_THRESHOLD}, grouped across gaps of up to 50 ms")
         lines.append("Detection: 10 ms bins, local median over 101 bins, 10 ms before and 50 ms after flagged bins")
         lines.extend(f"Candidate since first hit (s): {start:.9g} to {min(stop, duration):.9g}"
                      for start, stop in intervals)
     report.write_text("\n".join(lines) + "\n")
-    count_text = f"; spark count: {sparks}" if mode != "off" else ""
-    print(f"Spark mode: {mode}{count_text}; removal applied: {status}; report: {report}", flush=True)
+    print(f"Spark mode: {mode}; spark count: {sparks}; removal applied: {status}; report: {report}", flush=True)
     if rejected:
         raise ValueError(f"Spark cut rejected; see {report}")
     return keep, duration, excluded
@@ -123,15 +138,18 @@ def spark_cut(toa, tot, report_path):
 
 if __name__ == "__main__":
     import argparse
+    import csv
     import h5py
     import sys
 
     parser = argparse.ArgumentParser(description="Count high-ToT sparks in saved optical runs.")
     parser.add_argument("--fallback-optical", type=Path,
                         help="try <dir>/<run>/output.hdf5 when a primary file is unreadable")
+    parser.add_argument("--csv", type=Path, help="write counts to this CSV")
     parser.add_argument("hdf5", type=Path, nargs="+")
     args = parser.parse_args()
     failed = False
+    rows = []
     for path in args.hdf5:
         run = path.parent.name
         sources = [path]
@@ -147,8 +165,15 @@ if __name__ == "__main__":
                 continue
             suffix = " (before-pass HDF5)" if index else ""
             print(f"{run}: {count}{suffix}", flush=True)
+            rows.append((run, count))
             break
         else:
             failed = True
             print(f"{run}: spark count unavailable", flush=True)
+            rows.append((run, ""))
+    if args.csv is not None:
+        with args.csv.open("w", newline="") as output:
+            writer = csv.writer(output)
+            writer.writerow(("run", "spark_count"))
+            writer.writerows(rows)
     sys.exit(int(failed))

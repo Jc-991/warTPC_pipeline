@@ -212,8 +212,9 @@ def main():
    for rel,name in targets.items():
     if (rd/rel).is_file():shutil.copy2(rd/rel,dst/name)
     else:failures.append(f'{run}: missing optical image {rel}')
-   spectrum=rd/'diagnostics'/'tot-vs-time-before-sparks.png'
-   if spectrum.is_file():shutil.copy2(spectrum,dst/spectrum.name)
+   for name in ('tot-vs-time-before-sparks.png','tot-distribution-before-sparks.png'):
+    diagnostic=rd/'diagnostics'/name
+    if diagnostic.is_file():shutil.copy2(diagnostic,dst/name)
   except Exception as e:failures.append(f'{run}: optical: {e}')
   if r['optical'] is not None and r['v50'] is not None and r['v50']>0:
    r['ratio']=r['optical']/r['v50'];r['ratio_err']=abs(r['ratio'])*np.hypot(r['optical_err']/r['optical'],r['v50_err']/r['v50']) if r['optical']!=0 and r['v50_err'] is not None else None

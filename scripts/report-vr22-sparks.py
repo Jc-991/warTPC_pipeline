@@ -19,6 +19,7 @@ PLOTS = (
     "y_projection_signal.png",
     "tot-vs-time-before-sparks.png",
 )
+TOT_DISTRIBUTION = "tot-distribution-before-sparks.png"
 SUMMARY_COLUMNS = (
     "run", "spark_count", "removal_applied", "exposure_before_s",
     "exposure_after_s", "exposure_excluded_s", "S_O_ms", "S_O_norm_ms_per_s",
@@ -107,6 +108,11 @@ def main():
                 shutil.copy2(source, destination / name)
             else:
                 issues.append(f"missing {name}")
+        distribution = plots / TOT_DISTRIBUTION
+        if not distribution.is_file():
+            distribution = cleaned / "diagnostics" / TOT_DISTRIBUTION
+        if distribution.is_file():
+            shutil.copy2(distribution, destination / TOT_DISTRIBUTION)
         before_x = args.before / "plots" / "optical_per_run" / run / "x_projection_signal.png"
         after_x = plots / "x_projection_signal.png"
         if before_x.is_file() and after_x.is_file():

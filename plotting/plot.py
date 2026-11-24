@@ -228,9 +228,10 @@ def analyse_runs(src, out, rms_limit, warnings, issues):
                     shutil.copy2(opt / rel, dst / name)
                 else:
                     issues.append(f'{run}: missing optical/{run}/{rel}')
-            spectrum = opt / 'diagnostics' / 'tot-vs-time-before-sparks.png'
-            if spectrum.is_file():
-                shutil.copy2(spectrum, dst / spectrum.name)
+            for name in ('tot-vs-time-before-sparks.png', 'tot-distribution-before-sparks.png'):
+                diagnostic = opt / 'diagnostics' / name
+                if diagnostic.is_file():
+                    shutil.copy2(diagnostic, dst / name)
             for rel in OPTICAL_FAILURE_NOTES:
                 if (opt / rel).is_file():
                     reason = (opt / rel).read_text().splitlines()[0]

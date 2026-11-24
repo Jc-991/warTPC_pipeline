@@ -211,6 +211,7 @@ done
 } > "$results/optical_status.txt"
 echo
 cat "$results/optical_status.txt"
+bash "$REPO/scripts/write-spark-counts.sh" "$results" || status=1
 
 # 6. Plots, from all runs in the results folder
 if [[ $do_plot -eq 1 ]]; then

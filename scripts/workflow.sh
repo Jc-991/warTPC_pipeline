@@ -118,6 +118,9 @@ for step in "${steps[@]}"; do
   fi
   "$BUILD/$step" -i "$dataset" -o "$results" \
     || { status=1; echo "$step: some runs failed (see $results/${step}_status.txt)"; }
+  if [[ "$step" == optical ]]; then
+    bash "$REPO/scripts/write-spark-counts.sh" "$results" || status=1
+  fi
 done
 
 # 5. Plots (PLOT_GUIDE.md), made from whatever optical/charge produced, so
