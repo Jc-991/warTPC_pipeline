@@ -27,7 +27,7 @@ V50_METHOD = ('scipy find_peaks on a 199-bin 0-6000 mV histogram of channel-B pu
               'higher-mV one is taken, at its bin lower edge; candidates under 20 counts are set to 0 '
               '(no estimate); width = FWHM/2.355. No Gaussian fit.')
 
-# The only four files copied into optical_per_run/<run>/: source (inside
+# The four standard files copied into optical_per_run/<run>/: source (inside
 # optical/<run>/) -> name. All from the 4to8 setting with the 2nd-degree
 # background fit, the same whether rebin-x is on or off. Everything else stays
 # in optical/<run>/.
@@ -228,6 +228,9 @@ def analyse_runs(src, out, rms_limit, warnings, issues):
                     shutil.copy2(opt / rel, dst / name)
                 else:
                     issues.append(f'{run}: missing optical/{run}/{rel}')
+            spectrum = opt / 'diagnostics' / 'tot-vs-time-before-sparks.png'
+            if spectrum.is_file():
+                shutil.copy2(spectrum, dst / spectrum.name)
             for rel in OPTICAL_FAILURE_NOTES:
                 if (opt / rel).is_file():
                     reason = (opt / rel).read_text().splitlines()[0]
