@@ -228,7 +228,8 @@ def analyse_runs(src, out, rms_limit, warnings, issues):
                     shutil.copy2(opt / rel, dst / name)
                 else:
                     issues.append(f'{run}: missing optical/{run}/{rel}')
-            for name in ('tot-vs-time-before-sparks.png', 'tot-distribution-before-sparks.png'):
+            for name in ('tot-vs-time-before-sparks.png', 'tot-vs-time-spark-removal.png',
+                         'tot-distribution-before-sparks.png'):
                 diagnostic = opt / 'diagnostics' / name
                 if diagnostic.is_file():
                     shutil.copy2(diagnostic, dst / name)
@@ -476,8 +477,8 @@ Dataset: {dataset} ({kind} runs)
 
 run_conditions.csv/.md  V0-V4, pressure, methane fraction, exposure, V43+21/P per run.
 results.csv             Numerical results, spreads and review flags per run.
-optical_per_run/        4 plots per run (4to8, 2nd-degree background): 2D_integrated_ToT,
-                        x/y_projection_signal, combined_integral_distribution.
+optical_per_run/        Four classic plots plus the available spark diagnostics.
+                        The classic plots use the 4to8, 2nd-degree background setting.
 v50_distributions/      Channel-B V50 histogram per run (own x range; peak estimate dashed).
 summary_plots/          {{optical,v50}}_{{streaming,physics}}_{{linear,log}}.png and
                         ratio_{{streaming,physics}}_linear.png for this dataset.

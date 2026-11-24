@@ -203,7 +203,7 @@ The `plot` section of the main [README](../README.md#plot) describes each file.
 
 ## 2D images and X/Y projections
 
-`plots/optical_per_run/<run>/` has exactly four plots per run, all from the
+`plots/optical_per_run/<run>/` has four classic plots per run, drawn from the
 4to8 setting (signal to 4σ, sideband to 8σ) with the 2nd-degree background
 fit. It is the same four whether `--rebin-x` is on or off (with `on`, the X
 plot has 128 bins):
@@ -217,7 +217,15 @@ plot has 128 bins):
 
 A run that failed has none of these; `plots/status.txt` says why (see below).
 
-Everything else stays in `optical/<run>/`:
+In spark-removal mode, the per-run summary also includes these marked-up plots:
+
+| File | What it shows |
+|---|---|
+| `tot-distribution-before-sparks.png` | Filled, stacked histogram of kept and removed hits, with two lines marking the all-hit mean ± 5 RMS |
+| `tot-vs-time-spark-removal.png` | The original ToT-versus-arrival-time spectrum with individual removed hits circled |
+
+The unannotated `tot-vs-time-before-sparks.png` remains available for comparison.
+Other diagnostics stay in `optical/<run>/`:
 - `diagnostics/`, made before the 2D fit: the map with slices
   (`ToT-image-projections.png`), `summary.txt`, the numbers in
   `projections-raw.csv` (slices and full row/column sums) and the raw maps
@@ -354,16 +362,16 @@ from whatever is in the results folder, so:
 
 ## Spark detection
 
-Set `WARTPC_SPARK_MODE=detect` before the optical command to report candidate
-sparks while keeping every hit. For a single-run check:
+Set `WARTPC_SPARK_MODE=detect` before the optical command to report the ToT cut
+and count hits above it while keeping every hit. For a single-run check:
 
 ```bash
 WARTPC_SPARK_MODE=detect bash scripts/optical-analysis.sh "$dataset" "$results" --runs vr22-08
 ```
 
-After reviewing the candidates, use `WARTPC_SPARK_MODE=remove` with a separate
+After reviewing the threshold, use `WARTPC_SPARK_MODE=remove` with a separate
 results directory. The default is `off`. Each run writes
-`optical/<run>/diagnostics/spark_status.txt` with the mode, candidate intervals,
+`optical/<run>/diagnostics/spark_status.txt` with the mode, ToT threshold,
 whether removal was applied, the hit counts, and the usable exposure.
 Both `detect` and `remove` also save
 `optical/<run>/diagnostics/tot-vs-time-before-sparks.png` from all hits,
@@ -372,20 +380,19 @@ before tagging or masking any interval.
 `Spark count` counts distinct high-ToT bursts in the unfiltered data. A burst
 needs at least two hits at or above 8,000 stored ToT units, with consecutive
 qualifying hits at most 50 ms apart. These provisional settings come from the
-vr22 spectra. The hit-rate windows used for exposure removal are logged
-separately. To count from saved HDF5 files without rerunning an optical fit,
+vr22 spectra. This count is independent of the cut. To count from saved HDF5 files without rerunning an optical fit,
 run `python3 blackbox/spark_detection.py <run>/output.hdf5`.
 The workflow and selected-run scripts write `spark_counts.csv` at the
 dataset results root. The table includes every optical run in that folder
 and leaves the count blank if no count was recorded. It is also produced
 when spark removal is off or summary plotting is skipped.
 
-The detector flags 10 ms hit-count bins above a local median threshold. It
-excludes the flagged bins plus 10 ms before and 50 ms after, merging overlapping
-windows. These are heuristic candidates and the recovery margin is a starting
-value to check against the detector response. Removal masks hits before building
-the optical maps and subtracts the excluded time from the exposure. The HDF5
-input stays intact.
+The cut removes only hits whose ToT is strictly greater than the all-hit mean
+plus 10 RMS. It masks hits before building the optical maps. Exposure is
+unchanged because no time windows are excluded, and the HDF5 input stays
+intact. To generate the marked-up plots from a saved HDF5 without rerunning
+the optical fit, use
+`python3 blackbox/spark_detection.py --removal-plots <plot_dir> <run>/output.hdf5`.
 
 ## Re-running
 

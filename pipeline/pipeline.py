@@ -212,7 +212,8 @@ def main():
    for rel,name in targets.items():
     if (rd/rel).is_file():shutil.copy2(rd/rel,dst/name)
     else:failures.append(f'{run}: missing optical image {rel}')
-   for name in ('tot-vs-time-before-sparks.png','tot-distribution-before-sparks.png'):
+   for name in ('tot-vs-time-before-sparks.png','tot-vs-time-spark-removal.png',
+                'tot-distribution-before-sparks.png'):
     diagnostic=rd/'diagnostics'/name
     if diagnostic.is_file():shutil.copy2(diagnostic,dst/name)
   except Exception as e:failures.append(f'{run}: optical: {e}')

@@ -1,14 +1,14 @@
-"""Identify and optionally exclude candidate optical discharges by hit rate."""
+"""Count high-ToT bursts and optionally exclude individual ToT outliers."""
 
 from pathlib import Path
 import os
 
 import numpy as np
-from scipy.ndimage import median_filter
 
 
 SPARK_TOT_THRESHOLD = 8000
 SPARK_GAP_TICKS = 500_000_000_000  # 50 ms in the stored ToA units
+TOT_CUT_RMS = 10
 
 
 def count_sparks(toa, tot):
@@ -39,7 +39,9 @@ def save_tot_distribution(tot, output, removed=None):
                       label=f"Removed ({int(removed.sum()):,} hits)")
         ax.axvline(lower, color="black", linestyle="--", label=f"Mean − 5 RMS ({lower:.1f})")
         ax.axvline(upper, color="black", linestyle=":", label=f"Mean + 5 RMS ({upper:.1f})")
-        left, right = min(edges[0], lower), max(edges[-1], upper)
+        cutoff = mean + TOT_CUT_RMS * rms
+        ax.axvline(cutoff, color="tab:red", linestyle="--", label=f"ToT cut ({cutoff:.1f})")
+        left, right = min(edges[0], lower), max(edges[-1], cutoff)
         padding = 0.02 * (right - left)
         ax.set(xlabel="Hit ToT (stored units)", ylabel="Hits per bin",
                xlim=(left - padding, right + padding), yscale="log",
@@ -50,7 +52,7 @@ def save_tot_distribution(tot, output, removed=None):
         plt.close(fig)
 
 
-def save_tot_spectrum(seconds, tot, time_bins, width, output):
+def save_tot_spectrum(seconds, tot, time_bins, width, output, removed=None):
     """Plot the unfiltered ToT distribution as a function of run time."""
     from matplotlib import pyplot as plt
     from matplotlib.colors import LogNorm
@@ -67,22 +69,29 @@ def save_tot_spectrum(seconds, tot, time_bins, width, output):
         fig.colorbar(image, ax=ax, label="Hits per bin")
         ax.set(xlabel="Time since first hit (s)", ylabel="Hit ToT (stored units)",
                title="ToT versus arrival time before spark tagging")
+        if removed is not None:
+            ax.scatter(seconds[removed], tot[removed], s=24, facecolors="none",
+                       edgecolors="tab:red", linewidths=0.8,
+                       label=f"Removed hits ({int(removed.sum()):,})")
+            ax.set_title("ToT versus arrival time with removed hits marked")
+            ax.legend(loc="upper right")
         fig.savefig(output, dpi=170)
     finally:
         plt.close(fig)
 
 
-def spark_cut(toa, tot, report_path):
+def spark_cut(toa, tot, report_path, *, mode=None):
     """Return the optional keep mask, original exposure, and excluded seconds."""
-    mode = os.environ.get("WARTPC_SPARK_MODE", "off").strip().lower()
+    if mode is None:
+        mode = os.environ.get("WARTPC_SPARK_MODE", "off").strip().lower()
     if mode not in ("off", "detect", "remove"):
         raise ValueError("WARTPC_SPARK_MODE must be off, detect, or remove")
 
     width = 0.01
-    recovery = 0.05
     count = len(toa)
     duration = 0.0
-    intervals = []
+    cutoff = None
+    flagged = None
     keep = None
     report = Path(report_path)
     report.parent.mkdir(parents=True, exist_ok=True)
@@ -93,30 +102,15 @@ def spark_cut(toa, tot, report_path):
             seconds = (toa - toa.min()) / 1e13
             duration = float(seconds.max())
             bins = (seconds / width).astype(np.intp)
-            hits = np.bincount(bins)
-            save_tot_spectrum(seconds, tot, len(hits), width,
+            time_bins = int(bins.max()) + 1
+            save_tot_spectrum(seconds, tot, time_bins, width,
                               report.with_name("tot-vs-time-before-sparks.png"))
-            baseline = median_filter(hits, size=101, mode="reflect")
-            threshold = np.maximum.reduce((
-                np.full(len(hits), 30.0),
-                3.0 * baseline,
-                baseline + 8.0 * np.sqrt(np.maximum(baseline, 1)),
-            ))
-            for index in np.flatnonzero(hits >= threshold):
-                start = max(0.0, (index - 1) * width)
-                stop = min(np.nextafter(duration, np.inf), (index + 1) * width + recovery)
-                if intervals and start <= intervals[-1][1]:
-                    intervals[-1] = (intervals[-1][0], stop)
-                else:
-                    intervals.append((start, stop))
-            if mode == "remove" and intervals:
-                starts, stops = np.asarray(intervals).T
-                # Inside an interval when one more start than stop has passed.
-                keep = np.searchsorted(starts, seconds, side="right") == np.searchsorted(
-                    stops, seconds, side="right"
-                )
+            cutoff = float(np.mean(tot) + TOT_CUT_RMS * np.std(tot))
+            flagged = tot > cutoff
+            if mode == "remove" and flagged.any():
+                keep = ~flagged
 
-    excluded = sum(min(stop, duration) - start for start, stop in intervals) if keep is not None else 0.0
+    excluded = 0.0  # An individual-hit cut does not veto any time intervals.
     remaining = int(keep.sum()) if keep is not None else count
     removed = count - remaining
     usable = duration - excluded
@@ -126,7 +120,7 @@ def spark_cut(toa, tot, report_path):
     elif removed:
         status = "yes"
     elif mode == "remove":
-        status = "no (no candidate intervals)"
+        status = "no (no hits above the ToT cut)"
     else:
         status = f"no ({mode} mode)"
     sparks = count_sparks(toa, tot)
@@ -134,17 +128,16 @@ def spark_cut(toa, tot, report_path):
         f"Mode: {mode}",
         f"Removal applied: {status}",
         f"Spark count: {sparks}",
-        f"Candidate intervals: {len(intervals)}",
+        "Candidate intervals: 0",
         f"Hits before/kept: {count} / {remaining}",
         f"Hits excluded: {removed}",
         f"Exposure before/after (s): {duration:.9g} / {usable:.9g}",
         f"Exposure excluded (s): {excluded:.9g}",
     ]
     lines.append(f"Spark count rule: at least two hits with ToT >= {SPARK_TOT_THRESHOLD}, grouped across gaps of up to 50 ms")
-    if mode != "off":
-        lines.append("Detection: 10 ms bins, local median over 101 bins, 10 ms before and 50 ms after flagged bins")
-        lines.extend(f"Candidate since first hit (s): {start:.9g} to {min(stop, duration):.9g}"
-                     for start, stop in intervals)
+    if cutoff is not None:
+        lines.append(f"ToT cut (strictly greater than): {cutoff:.9g}")
+        lines.append(f"Hits above ToT cut: {int(flagged.sum())}")
     report.write_text("\n".join(lines) + "\n")
     print(f"Spark mode: {mode}; spark count: {sparks}; removal applied: {status}; report: {report}", flush=True)
     if rejected:
@@ -153,6 +146,9 @@ def spark_cut(toa, tot, report_path):
         removed_mask = None
         if mode == "remove":
             removed_mask = ~keep if keep is not None else np.zeros(count, dtype=bool)
+            save_tot_spectrum(seconds, tot, time_bins, width,
+                              report.with_name("tot-vs-time-spark-removal.png"),
+                              removed=removed_mask)
         save_tot_distribution(tot, report.with_name("tot-distribution-before-sparks.png"), removed_mask)
     return keep, duration, excluded
 
@@ -167,8 +163,12 @@ if __name__ == "__main__":
     parser.add_argument("--fallback-optical", type=Path,
                         help="try <dir>/<run>/output.hdf5 when a primary file is unreadable")
     parser.add_argument("--csv", type=Path, help="write counts to this CSV")
+    parser.add_argument("--removal-plots", type=Path,
+                        help="save plots and the ToT cut report for one HDF5 file to this directory")
     parser.add_argument("hdf5", type=Path, nargs="+")
     args = parser.parse_args()
+    if args.removal_plots is not None and len(args.hdf5) != 1:
+        parser.error("--removal-plots requires exactly one HDF5 file")
     failed = False
     rows = []
     for path in args.hdf5:
@@ -180,11 +180,17 @@ if __name__ == "__main__":
             try:
                 with h5py.File(source_path, "r") as source:
                     hits = source["PixelHits"]
-                    count = count_sparks(hits["toa"][:], hits["tot"][:])
+                    toa, tot = hits["toa"][:], hits["tot"][:]
+                    count = count_sparks(toa, tot)
             except (OSError, KeyError, ValueError) as error:
                 print(f"{run}: cannot read {source_path}: {error}", file=sys.stderr, flush=True)
                 continue
             suffix = " (before-pass HDF5)" if index else ""
+            if args.removal_plots is not None:
+                from matplotlib import use
+
+                use("Agg")
+                spark_cut(toa, tot, args.removal_plots / "spark_status.txt", mode="remove")
             print(f"{run}: {count}{suffix}", flush=True)
             rows.append((run, count))
             break

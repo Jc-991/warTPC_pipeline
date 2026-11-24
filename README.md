@@ -242,7 +242,7 @@ Set `WARTPC_PYTHON` to choose the Python interpreter (default `python3`).
 <plot_dir>/
 ├── run_conditions.csv/.md   V0–V4, pressure, methane fraction, exposure, V43+21/P, ID mismatches
 ├── results.csv              S_O, RMS, V50, width, event counts, ratio, review flags per run
-├── optical_per_run/<run>/   4 plots (4to8, 2nd degree): ToT image, x/y projection, stacked integral
+├── optical_per_run/<run>/   4 classic plots plus spark diagnostics when generated
 │                            (made before the fits, so present for every run)
 ├── v50_distributions/       one histogram per run, with peak estimate, bin width and counts
 ├── summary_plots/           optical and V50: streaming + physics, linear + log;
@@ -291,7 +291,7 @@ original Blackbox.
 | `no_hits.txt` | Written if the HDF5 file has no pixel hits |
 
 These stay in `optical/<run>/diagnostics/`; `plot` lists the failure reasons
-in `status.txt`. `optical_per_run/<run>/` gets only four plots, from the 4to8
+in `status.txt`. `optical_per_run/<run>/` gets four classic plots from the 4to8
 setting with the 2nd-degree background: `2D_integrated_ToT.png`,
 `x_projection_signal.png`, `y_projection_signal.png` and
 `combined_integral_distribution.png`.
