@@ -124,11 +124,31 @@ def spark_cut(toa, tot, report_path):
 if __name__ == "__main__":
     import argparse
     import h5py
+    import sys
 
     parser = argparse.ArgumentParser(description="Count high-ToT sparks in saved optical runs.")
+    parser.add_argument("--fallback-optical", type=Path,
+                        help="try <dir>/<run>/output.hdf5 when a primary file is unreadable")
     parser.add_argument("hdf5", type=Path, nargs="+")
     args = parser.parse_args()
+    failed = False
     for path in args.hdf5:
-        with h5py.File(path, "r") as source:
-            count = count_sparks(source["PixelHits/toa"][:], source["PixelHits/tot"][:])
-        print(f"{path.parent.name}: {count}")
+        run = path.parent.name
+        sources = [path]
+        if args.fallback_optical is not None:
+            sources.append(args.fallback_optical / run / "output.hdf5")
+        for index, source_path in enumerate(sources):
+            try:
+                with h5py.File(source_path, "r") as source:
+                    hits = source["PixelHits"]
+                    count = count_sparks(hits["toa"][:], hits["tot"][:])
+            except (OSError, KeyError, ValueError) as error:
+                print(f"{run}: cannot read {source_path}: {error}", file=sys.stderr, flush=True)
+                continue
+            suffix = " (before-pass HDF5)" if index else ""
+            print(f"{run}: {count}{suffix}", flush=True)
+            break
+        else:
+            failed = True
+            print(f"{run}: spark count unavailable", flush=True)
+    sys.exit(int(failed))
