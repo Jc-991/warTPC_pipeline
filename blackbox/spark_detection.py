@@ -18,16 +18,25 @@ def count_sparks(toa, tot):
     return sum(len(group) >= 2 for group in groups)
 
 
-def save_tot_distribution(tot, output):
+def save_tot_distribution(tot, output, removed=None):
     """Histogram the measured ToT of every original hit."""
     from matplotlib import pyplot as plt
 
     counts, edges = np.histogram(tot, bins=128)
     fig, ax = plt.subplots(figsize=(8, 5), layout="constrained")
     try:
-        ax.stairs(counts, edges, baseline=None)
+        mean = float(np.mean(tot))
+        rms = float(np.std(tot))
+        ax.axvspan(mean - 5 * rms, mean + 5 * rms, color="tab:blue", alpha=0.14,
+                   label=f"Mean ± 5 RMS (mean {mean:.1f}, RMS {rms:.1f})")
+        ax.stairs(counts, edges, baseline=None, color="tab:blue", label="All hits before tagging")
+        if removed is not None:
+            removed_counts, _ = np.histogram(tot[removed], bins=edges)
+            ax.stairs(removed_counts, edges, baseline=None, color="tab:red",
+                      label=f"Removed by hit-rate cut ({int(removed.sum()):,} hits)")
         ax.set(xlabel="Hit ToT (stored units)", ylabel="Hits per bin",
-               yscale="log", title="Hit ToT distribution before spark tagging")
+               xlim=(edges[0], edges[-1]), yscale="log", title="Hit ToT distribution and spark cut")
+        ax.legend()
         fig.savefig(output, dpi=170)
     finally:
         plt.close(fig)
@@ -79,7 +88,6 @@ def spark_cut(toa, tot, report_path):
             hits = np.bincount(bins)
             save_tot_spectrum(seconds, tot, len(hits), width,
                               report.with_name("tot-vs-time-before-sparks.png"))
-            save_tot_distribution(tot, report.with_name("tot-distribution-before-sparks.png"))
             baseline = median_filter(hits, size=101, mode="reflect")
             threshold = np.maximum.reduce((
                 np.full(len(hits), 30.0),
@@ -133,6 +141,11 @@ def spark_cut(toa, tot, report_path):
     print(f"Spark mode: {mode}; spark count: {sparks}; removal applied: {status}; report: {report}", flush=True)
     if rejected:
         raise ValueError(f"Spark cut rejected; see {report}")
+    if count and mode != "off":
+        removed_mask = None
+        if mode == "remove":
+            removed_mask = ~keep if keep is not None else np.zeros(count, dtype=bool)
+        save_tot_distribution(tot, report.with_name("tot-distribution-before-sparks.png"), removed_mask)
     return keep, duration, excluded
 
 
