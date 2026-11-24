@@ -18,7 +18,7 @@ os.chdir(moddir)
 
 import h5py
 import numpy as np
-from spark_detection import spark_cut
+from spark_detection import spark_cut, write_optical_summary
 
 import ROOT
 from ROOT import TLatex
@@ -1031,6 +1031,7 @@ sig_out = pd.DataFrame([[ID],[pres],[FC],[E1],[E2],[E3],[E4],[purity],[mean_tot]
 inspect = pd.DataFrame([[f"{ID} Mean = {mean_round} RMS = {rms_round} ({round(percent,1)}%). Analysis performed at {now}"]])
 
 sig_out.T.to_csv(f"{path}/{directory}/integral.csv", mode="w", index=False, header=False)
+write_optical_summary(f"{path}/{directory}", ID, mean_tot, time, time_cut)
 inspect.T.to_csv(f"{path}/{directory}/integral-inspect.csv", mode="w", index=False, header=False)
 
 sig_out.T.to_csv(f"{path}/results/signals.csv", mode="a", index=False, header=False)

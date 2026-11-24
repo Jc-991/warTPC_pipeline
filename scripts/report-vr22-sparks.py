@@ -100,7 +100,9 @@ def main():
             row.update(removal_applied=report["Removal applied"],
                        exposure_before_s=before, exposure_after_s=after,
                        exposure_excluded_s=float(report["Exposure excluded (s)"]))
-            if "Spark count" in report:
+            if "Hits above ToT cut" in report:
+                row["spark_count"] = int(report["Hits above ToT cut"])
+            elif report.get("Spark count rule", "").startswith("individual hits"):
                 row["spark_count"] = int(report["Spark count"])
             else:
                 issues.append("spark count unavailable in this report")
@@ -140,7 +142,6 @@ def main():
               + (f" ({row['issues']})" if issues else ""))
 
     write_csv(args.output / "run_summary.csv", SUMMARY_COLUMNS, summary)
-    write_text_summary(args.output / "run_summary.txt", summary)
     write_csv(args.output / "excluded_intervals.csv",
               ("run", "interval", "start_s", "stop_s", "excluded_exposure_s"), windows)
     return int(any(row["issues"] for row in summary))

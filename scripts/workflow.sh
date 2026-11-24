@@ -19,6 +19,7 @@ Usage: $(basename "$0") <dataset_dir> <output_dir> [--run optical|charge|both]
   <dataset_dir>   unzipped dataset folder (with optical/ and/or charge/);
                   use unzip.sh first to unzip an uploaded ZIP
   <output_dir>    results go to <output_dir>/<name>_results/ (analysis and plots)
+                  each completed optical run includes its own run_summary.txt
   --run WHAT      which analysis to run: optical, charge or both (default: both)
   --kind K        pressure or voltage: marker type in the plots (default: guessed
                   from the dataset name, e.g. pressure-pass-06 or prp*)

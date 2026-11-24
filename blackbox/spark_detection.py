@@ -1,21 +1,45 @@
-"""Count high-ToT bursts and optionally exclude individual ToT outliers."""
+"""Count and optionally exclude individual ToT outliers."""
 
+import csv
 from pathlib import Path
 import os
 
 import numpy as np
 
 
-SPARK_TOT_THRESHOLD = 8000
-SPARK_GAP_TICKS = 500_000_000_000  # 50 ms in the stored ToA units
 TOT_CUT_RMS = 10
 
 
-def count_sparks(toa, tot):
-    """Count clusters of at least two high-ToT hits in the original data."""
-    high_toa = np.sort(toa[tot >= SPARK_TOT_THRESHOLD])
-    groups = np.split(high_toa, np.flatnonzero(np.diff(high_toa) > SPARK_GAP_TICKS) + 1)
-    return sum(len(group) >= 2 for group in groups)
+def write_optical_summary(run_dir, run_id, normalized_signal, original_exposure, excluded_exposure):
+    """Write the run summary after the optical signal fit completes."""
+    run_dir = Path(run_dir)
+    status = dict(
+        line.split(": ", 1)
+        for line in (run_dir / "diagnostics" / "spark_status.txt").read_text().splitlines()
+        if ": " in line
+    )
+    usable = original_exposure - excluded_exposure
+    columns = (
+        "runID", "S_O", "original_exposure", "number_of_sparks",
+        "number_of_sparkAlgo_iterations", "total_spark_exposure_removed",
+        "exposure_after_spark_removal", "S_O^norm",
+    )
+    values = (
+        run_id, normalized_signal * usable, original_exposure, status["Spark count"],
+        status["Spark algorithm iterations"], excluded_exposure, usable, normalized_signal,
+    )
+    with (run_dir / "run_summary.txt").open("w", newline="") as output:
+        output.write("S_O^norm = S_O / exposure_after_spark_removal\n")
+        writer = csv.writer(output, delimiter="\t", lineterminator="\n")
+        writer.writerow(columns)
+        writer.writerow([f"{value:.12g}" if isinstance(value, (float, np.floating)) else value
+                         for value in values])
+
+
+def flag_sparks(tot):
+    """Flag each hit strictly above the all-hit ToT cut."""
+    cutoff = float(np.mean(tot) + TOT_CUT_RMS * np.std(tot)) if len(tot) else None
+    return cutoff, tot > cutoff if cutoff is not None else np.zeros(0, dtype=bool)
 
 
 def save_tot_distribution(tot, output, removed=None):
@@ -92,8 +116,7 @@ def spark_cut(toa, tot, report_path, *, mode=None):
     width = 0.01
     count = len(toa)
     duration = 0.0
-    cutoff = None
-    flagged = None
+    cutoff, flagged = flag_sparks(tot)
     keep = None
     report = Path(report_path)
     report.parent.mkdir(parents=True, exist_ok=True)
@@ -107,8 +130,6 @@ def spark_cut(toa, tot, report_path, *, mode=None):
             time_bins = int(bins.max()) + 1
             save_tot_spectrum(seconds, tot, time_bins, width,
                               report.with_name("tot-vs-time-before-sparks.png"))
-            cutoff = float(np.mean(tot) + TOT_CUT_RMS * np.std(tot))
-            flagged = tot > cutoff
             if mode == "remove" and flagged.any():
                 keep = ~flagged
 
@@ -125,22 +146,22 @@ def spark_cut(toa, tot, report_path, *, mode=None):
         status = "no (no hits above the ToT cut)"
     else:
         status = f"no ({mode} mode)"
-    sparks = count_sparks(toa, tot)
+    sparks = int(flagged.sum())
     lines = [
         f"Mode: {mode}",
         f"Removal applied: {status}",
         f"Spark count: {sparks}",
-        f"Spark algorithm iterations: {int(cutoff is not None)}",
+        f"Spark algorithm iterations: {int(mode != 'off' and cutoff is not None)}",
         "Candidate intervals: 0",
         f"Hits before/kept: {count} / {remaining}",
         f"Hits excluded: {removed}",
         f"Exposure before/after (s): {duration:.9g} / {usable:.9g}",
         f"Exposure excluded (s): {excluded:.9g}",
     ]
-    lines.append(f"Spark count rule: at least two hits with ToT >= {SPARK_TOT_THRESHOLD}, grouped across gaps of up to 50 ms")
+    lines.append(f"Spark count rule: individual hits with ToT > mean + {TOT_CUT_RMS} RMS")
     if cutoff is not None:
         lines.append(f"ToT cut (strictly greater than): {cutoff:.9g}")
-        lines.append(f"Hits above ToT cut: {int(flagged.sum())}")
+        lines.append(f"Hits above ToT cut: {sparks}")
     report.write_text("\n".join(lines) + "\n")
     print(f"Spark mode: {mode}; spark count: {sparks}; removal applied: {status}; report: {report}", flush=True)
     if rejected:
@@ -158,7 +179,6 @@ def spark_cut(toa, tot, report_path, *, mode=None):
 
 if __name__ == "__main__":
     import argparse
-    import csv
     import h5py
     import sys
 
@@ -184,7 +204,8 @@ if __name__ == "__main__":
                 with h5py.File(source_path, "r") as source:
                     hits = source["PixelHits"]
                     toa, tot = hits["toa"][:], hits["tot"][:]
-                    count = count_sparks(toa, tot)
+                    _, flagged = flag_sparks(tot)
+                    count = int(flagged.sum())
             except (OSError, KeyError, ValueError) as error:
                 print(f"{run}: cannot read {source_path}: {error}", file=sys.stderr, flush=True)
                 continue

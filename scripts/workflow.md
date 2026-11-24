@@ -377,15 +377,18 @@ Both `detect` and `remove` also save
 `optical/<run>/diagnostics/tot-vs-time-before-sparks.png` from all hits,
 before tagging or masking any interval.
 
-`Spark count` counts distinct high-ToT bursts in the unfiltered data. A burst
-needs at least two hits at or above 8,000 stored ToT units, with consecutive
-qualifying hits at most 50 ms apart. These provisional settings come from the
-vr22 spectra. This count is independent of the cut. To count from saved HDF5 files without rerunning an optical fit,
+`Spark count` counts individual hits strictly above the all-hit mean ToT
+plus 10 RMS. In removal mode this count matches the number of removed hits
+marked on the plots. To count from saved HDF5 files without rerunning an optical fit,
 run `python3 blackbox/spark_detection.py <run>/output.hdf5`.
 The workflow and selected-run scripts write `spark_counts.csv` at the
 dataset results root. The table includes every optical run in that folder
 and leaves the count blank if no count was recorded. It is also produced
 when spark removal is off or summary plotting is skipped.
+Each completed optical run writes a tab-separated `run_summary.txt` with the
+original and usable exposures, spark count, iteration count, and optical
+signals before and after exposure normalization. With plotting enabled, each
+run's file is also copied into its own `plots/optical_per_run/<run>/` folder.
 
 The cut removes only hits whose ToT is strictly greater than the all-hit mean
 plus 10 RMS. It masks hits before building the optical maps. Exposure is

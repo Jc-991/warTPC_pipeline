@@ -34,7 +34,7 @@ Usage: $(basename "$0") <dataset_dir> <output_dir> [--runs LIST] [--kind pressur
                   default 1 = no rebinning); also prints the rebinned plots
   --analysis FILE use FILE instead of blackbox/optical-analysis.py, e.g.
                   ../blackbox/optical-analysis-rebin-x.py (Matt's code with rebinX(2))
-  --no-plot       skip the plots
+  --no-plot       skip the plots; each completed run still writes run_summary.txt
   -h, --help      show this help
 EOF
 }

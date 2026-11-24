@@ -209,6 +209,8 @@ def main():
      'signal-integral_x/2nd_degree/4to8/ToT-image.png':'2D_integrated_ToT.png',
    }
    dst=out/'optical_per_run'/run;dst.mkdir()
+   run_summary=rd/'run_summary.txt'
+   if run_summary.is_file():shutil.copy2(run_summary,dst/run_summary.name)
    for rel,name in targets.items():
     if (rd/rel).is_file():shutil.copy2(rd/rel,dst/name)
     else:failures.append(f'{run}: missing optical image {rel}')
