@@ -352,7 +352,32 @@ from whatever is in the results folder, so:
   and the plots are remade with both. The step that isn't rerun keeps its
   earlier results.
 
+## Spark detection
+
+Set `WARTPC_SPARK_MODE=detect` before the optical command to report candidate
+sparks while keeping every hit. For a single-run check:
+
+```bash
+WARTPC_SPARK_MODE=detect bash scripts/optical-analysis.sh "$dataset" "$results" --runs vr22-08
+```
+
+After reviewing the candidates, use `WARTPC_SPARK_MODE=remove` with a separate
+results directory. The default is `off`. Each run writes
+`optical/<run>/diagnostics/spark_status.txt` with the mode, candidate intervals,
+whether removal was applied, the hit counts, and the usable exposure.
+
+The detector flags 10 ms hit-count bins above a local median threshold. It
+excludes the flagged bins plus 10 ms before and 50 ms after, merging overlapping
+windows. These are heuristic candidates and the recovery margin is a starting
+value to check against the detector response. Removal masks hits before building
+the optical maps and subtracts the excluded time from the exposure. The HDF5
+input stays intact.
+
 ## Re-running
+
+Plots inside `signal-integral_x/` and `signal-integral_y/` are opt-in.
+To generate them, prefix the optical command with `WARTPC_SIGNAL_PLOTS=1`.
+The integral CSVs and the combined integral plot are produced in either mode.
 
 - **Same dataset folder, same `<output_dir>`:** optical and charge overwrite
   their earlier results, and the plots are remade. Nothing is unzipped.

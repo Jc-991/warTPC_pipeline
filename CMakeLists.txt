@@ -42,7 +42,7 @@ install(PROGRAMS
   DESTINATION ${WARTPC_DATADIR})
 # tpx3dump is not in git (over GitHub's size limit); install it only if present.
 install(PROGRAMS blackbox/tpx3dump DESTINATION ${WARTPC_DATADIR} OPTIONAL)
-install(FILES blackbox/setup_blackbox.sh DESTINATION ${WARTPC_DATADIR})
+install(FILES blackbox/setup_blackbox.sh blackbox/spark_detection.py DESTINATION ${WARTPC_DATADIR})
 install(PROGRAMS plotting/plot.py DESTINATION ${WARTPC_DATADIR}/plotting)
 install(FILES reference/history.csv reference/figure26_reference.png
   DESTINATION ${WARTPC_DATADIR}/reference)

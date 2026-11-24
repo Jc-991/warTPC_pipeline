@@ -18,6 +18,7 @@ os.chdir(moddir)
 
 import h5py
 import numpy as np
+from spark_detection import spark_cut
 
 import ROOT
 from ROOT import TLatex
@@ -36,7 +37,7 @@ data=str(sys.argv[3])
 
 res_folder="signal-integral"
 
-spark_cutting = False
+SAVE_SIGNAL_PLOTS = os.environ.get("WARTPC_SIGNAL_PLOTS") == "1"
 
 shutil.rmtree(path+"/"+directory+"/"+res_folder+"_y", ignore_errors=True)
 shutil.rmtree(path+"/"+directory+"/"+res_folder+"_x", ignore_errors=True)
@@ -54,13 +55,13 @@ toa = f["PixelHits"]["toa"][::step]
 x = f["PixelHits"]["x"][::step]
 y = f["PixelHits"]["y"][::step]
 
-time=toa[len(toa)-1]-toa[0]
+keep, time, time_cut = spark_cut(toa, f"{path}/{directory}/diagnostics/spark_status.txt")
+spark_cutting = keep is not None and not keep.all()
+if spark_cutting:
+    toa, tot, x, y = toa[keep], tot[keep], x[keep], y[keep]
 
-time=time/1E13
-
-time_cut=0
-
-frame_cut=30
+if not len(toa):
+    sys.exit(f"{directory}: no pixel hits in {data}")
 
 with open(f"{path}/{directory}/settings.csv", "r") as f:
     reader = csv.reader(f)
@@ -161,7 +162,7 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
     csvfolder=path+"/"+directory+"/"+res_folder+"/"+str(poly_type)
     
     try:
-        os.makedirs(folder)
+        os.makedirs(folder if SAVE_SIGNAL_PLOTS else csvfolder)
     except:
         #print("error making folder at "+folder)
         pass
@@ -172,26 +173,27 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
     signal_high = int(round(mean+signal_sig*np.abs(sig),0))
     sideband_high = int(round(mean+sideband_sig*np.abs(sig),0))
         
-    tot = plt.figure(figsize=(10,10))
-    plt.imshow(perChipTOT)
-    plt.tick_params(axis='both', which='major', labelsize=20)
-    plt.xlabel('X Pixel', fontsize=25)
-    plt.ylabel('Y Pixel', fontsize=25)
-    plt.title('Integrated Time-over-Threshold Image', fontsize=25)
-    if axis == 0:
-        plt.axvline(sideband_low)
-        plt.axvline(signal_low)
-        plt.axvline(signal_high)
-        plt.axvline(sideband_high)
-    if axis == 1:
-        plt.axhline(sideband_low)
-        plt.axhline(signal_low)
-        plt.axhline(signal_high)
-        plt.axhline(sideband_high)
-    plt.contour(np.arange(0,256,1), np.arange(0,256,1), twoD_Gaussian((yFit,xFit), *popt).reshape(256,256), 3, colors='w')
-    plt.savefig(folder+"/ToT-image.png")
-    plt.close()
-    
+    if SAVE_SIGNAL_PLOTS:
+        tot = plt.figure(figsize=(10,10))
+        plt.imshow(perChipTOT)
+        plt.tick_params(axis='both', which='major', labelsize=20)
+        plt.xlabel('X Pixel', fontsize=25)
+        plt.ylabel('Y Pixel', fontsize=25)
+        plt.title('Integrated Time-over-Threshold Image', fontsize=25)
+        if axis == 0:
+            plt.axvline(sideband_low)
+            plt.axvline(signal_low)
+            plt.axvline(signal_high)
+            plt.axvline(sideband_high)
+        if axis == 1:
+            plt.axhline(sideband_low)
+            plt.axhline(signal_low)
+            plt.axhline(signal_high)
+            plt.axhline(sideband_high)
+        plt.contour(np.arange(0,256,1), np.arange(0,256,1), twoD_Gaussian((yFit,xFit), *popt).reshape(256,256), 3, colors='w')
+        plt.savefig(folder+"/ToT-image.png")
+        plt.close()
+
     ycomp_3sig=[]
     ycomp_3sig_err=[]
 
@@ -263,58 +265,59 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
     #print("ndf = "+str(ndf3)+"\n")
     #print("chi2/NDF = "+str(chindf3)+"\n")
 
-    canvas_sig3 = ROOT.TCanvas("c3", "TGraph Example", 800, 600)
-    
-    if axis == 0:
-        full_data_sig3.SetTitle("Full Data with Upper Sideband Between "+str(signal_sig)+"#sigma and "+str(sideband_sig)+"#sigma;X Pixel;ToT (ms)")
-    if axis == 1:
-        full_data_sig3.SetTitle("Full Data with Upper Sideband Between "+str(signal_sig)+"#sigma and "+str(sideband_sig)+"#sigma;Y Pixel;ToT (ms)")
-    full_data_sig3.GetYaxis().SetRangeUser(0,1.1*max(ycomp_3sig));
-    full_data_sig3.SetMarkerStyle(8)
-    full_data_sig3.SetMarkerSize(1.3)
-    full_data_sig3.SetMarkerColor(2)
-    full_data_sig3.Draw("APE")
-    data_sig3.SetMarkerStyle(8)
-    data_sig3.SetMarkerSize(1.3)
-    data_sig3.SetMarkerColor(4)
+    if SAVE_SIGNAL_PLOTS:
+        canvas_sig3 = ROOT.TCanvas("c3", "TGraph Example", 800, 600)
 
-    latex_fit = ROOT.TLatex()
-    latex_fit.SetNDC()
-    latex_fit.SetTextSize(0.03)
-    latex_fit.DrawLatex(0.55, 0.85, "Fit: "+eq)
+        if axis == 0:
+            full_data_sig3.SetTitle("Full Data with Upper Sideband Between "+str(signal_sig)+"#sigma and "+str(sideband_sig)+"#sigma;X Pixel;ToT (ms)")
+        if axis == 1:
+            full_data_sig3.SetTitle("Full Data with Upper Sideband Between "+str(signal_sig)+"#sigma and "+str(sideband_sig)+"#sigma;Y Pixel;ToT (ms)")
+        full_data_sig3.GetYaxis().SetRangeUser(0,1.1*max(ycomp_3sig));
+        full_data_sig3.SetMarkerStyle(8)
+        full_data_sig3.SetMarkerSize(1.3)
+        full_data_sig3.SetMarkerColor(2)
+        full_data_sig3.Draw("APE")
+        data_sig3.SetMarkerStyle(8)
+        data_sig3.SetMarkerSize(1.3)
+        data_sig3.SetMarkerColor(4)
 
-    latex_int = ROOT.TLatex()
-    latex_int.SetNDC()
-    latex_int.SetTextSize(0.03)
-    latex_int.DrawLatex(0.55, 0.80, "Integral is: "+str(round(sum(ycomp_3sig,0))))
-    if spa_cut == True:
-        latex_info = ROOT.TLatex()
-        latex_info.SetNDC()
-        latex_info.SetTextSize(0.03)
-        latex_info.DrawLatex(0.55, 0.75, f"Time cut is {frame_cut} frames after sparking")
-        latex_info.DrawLatex(0.55, 0.70, f"Total cut is {time_cut:.0f} s")
-    
-    latex_ID = ROOT.TLatex()
-    latex_ID.SetNDC()
-    latex_ID.SetTextSize(0.03)
-    latex_ID.DrawLatex(0.15, 0.85, f"ID: {ID}")
-    if axis == 0:
-        latex_ID.DrawLatex(0.15, 0.80, f"RebinX(2): {len(ycomp_3sig)} bins")
-    
-    data_sig3.Draw("PE SAME")
-    dat_fit_sig3.Draw("SAME")
+        latex_fit = ROOT.TLatex()
+        latex_fit.SetNDC()
+        latex_fit.SetTextSize(0.03)
+        latex_fit.DrawLatex(0.55, 0.85, "Fit: "+eq)
 
-    canvas_sig3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+".png")
-    canvas_sig3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+".eps")
+        latex_int = ROOT.TLatex()
+        latex_int.SetNDC()
+        latex_int.SetTextSize(0.03)
+        latex_int.DrawLatex(0.55, 0.80, "Integral is: "+str(round(sum(ycomp_3sig,0))))
+        if spa_cut == True:
+            latex_info = ROOT.TLatex()
+            latex_info.SetNDC()
+            latex_info.SetTextSize(0.03)
+            latex_info.DrawLatex(0.55, 0.75, "Spark intervals excluded")
+            latex_info.DrawLatex(0.55, 0.70, f"Total cut is {time_cut:.3f} s")
 
-    full_data_sig3.GetYaxis().SetRangeUser(0,0.75*max(ycomp_3sig));
+        latex_ID = ROOT.TLatex()
+        latex_ID.SetNDC()
+        latex_ID.SetTextSize(0.03)
+        latex_ID.DrawLatex(0.15, 0.85, f"ID: {ID}")
+        if axis == 0:
+            latex_ID.DrawLatex(0.15, 0.80, f"RebinX(2): {len(ycomp_3sig)} bins")
 
-    canvas_sig3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_zoom.png")
-    canvas_sig3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_zoom.eps")
+        data_sig3.Draw("PE SAME")
+        dat_fit_sig3.Draw("SAME")
 
-    canvas_sig3.Update()
-    canvas_sig3.Close()
-    del canvas_sig3
+        canvas_sig3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+".png")
+        canvas_sig3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+".eps")
+
+        full_data_sig3.GetYaxis().SetRangeUser(0,0.75*max(ycomp_3sig));
+
+        canvas_sig3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_zoom.png")
+        canvas_sig3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_zoom.eps")
+
+        canvas_sig3.Update()
+        canvas_sig3.Close()
+        del canvas_sig3
 
     for yy in range(len(sig3_full_bins)):
         bkg_est=dat_fit_sig3.Eval(sig3_full_bins[yy])#var0+var1*sig3_full_bins[yy]+var2*sig3_full_bins[yy]**2+var3*sig3_full_bins[yy]**3#+var4*sig3_full_bins[yy]
@@ -326,50 +329,51 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
     #print(sum(sig3_full))
     #print(exposure)
 
-    signal3 = ROOT.TGraphErrors(len(sig3_full_bins), sig3_full_bins, sig3_full,0,sig3_full_err)
+    if SAVE_SIGNAL_PLOTS:
+        signal3 = ROOT.TGraphErrors(len(sig3_full_bins), sig3_full_bins, sig3_full,0,sig3_full_err)
 
-    canvas_signal3 = ROOT.TCanvas("c4", "TGraph Example", 800, 600)
-    signal3.SetTitle("Background Subtracted Signal with "+str(signal_sig)+"#sigma and "+str(sideband_sig)+"#sigma upper sideband;X Pixel;ToT (ms)")
-    signal3.SetMarkerStyle(8)
-    signal3.SetMarkerSize(1.3)
-    signal3.SetMarkerColor(2)
-    signal3.GetYaxis().SetRangeUser(1.1*min(sig3_full),1.1*max(sig3_full));
-    signal3.Draw("APE")
+        canvas_signal3 = ROOT.TCanvas("c4", "TGraph Example", 800, 600)
+        signal3.SetTitle("Background Subtracted Signal with "+str(signal_sig)+"#sigma and "+str(sideband_sig)+"#sigma upper sideband;X Pixel;ToT (ms)")
+        signal3.SetMarkerStyle(8)
+        signal3.SetMarkerSize(1.3)
+        signal3.SetMarkerColor(2)
+        signal3.GetYaxis().SetRangeUser(1.1*min(sig3_full),1.1*max(sig3_full));
+        signal3.Draw("APE")
 
-    latex_fit2 = ROOT.TLatex()
-    latex_fit2.SetNDC()
-    latex_fit2.SetTextSize(0.03)
-    latex_fit2.DrawLatex(0.55, 0.85, "Fit: "+eq)
+        latex_fit2 = ROOT.TLatex()
+        latex_fit2.SetNDC()
+        latex_fit2.SetTextSize(0.03)
+        latex_fit2.DrawLatex(0.55, 0.85, "Fit: "+eq)
 
-    latex_int2 = ROOT.TLatex()
-    latex_int2.SetNDC()
-    latex_int2.SetTextSize(0.03)
-    latex_int2.DrawLatex(0.55, 0.80, f"Integral is: {sum(sig3_full):.0f}")
-    if spa_cut == True:
-        latex_info2 = ROOT.TLatex()
-        latex_info2.SetNDC()
-        latex_info2.SetTextSize(0.03)
-        latex_info2.DrawLatex(0.55, 0.75, f"Time cut is {frame_cut} frames after sparking")
-        latex_info2.DrawLatex(0.55, 0.70, f"Total cut is {time_cut:.0f} s")
+        latex_int2 = ROOT.TLatex()
+        latex_int2.SetNDC()
+        latex_int2.SetTextSize(0.03)
+        latex_int2.DrawLatex(0.55, 0.80, f"Integral is: {sum(sig3_full):.0f}")
+        if spa_cut == True:
+            latex_info2 = ROOT.TLatex()
+            latex_info2.SetNDC()
+            latex_info2.SetTextSize(0.03)
+            latex_info2.DrawLatex(0.55, 0.75, "Spark intervals excluded")
+            latex_info2.DrawLatex(0.55, 0.70, f"Total cut is {time_cut:.3f} s")
 
-    line = ROOT.TLine(signal3.GetXaxis().GetXmin(), 0, signal3.GetXaxis().GetXmax(), 0) #y=0 from x=0 to x=100
-    line.SetLineColor(11)
-    line.SetLineWidth(2)
-    line.Draw("same")
-    
-    latex_ID = ROOT.TLatex()
-    latex_ID.SetNDC()
-    latex_ID.SetTextSize(0.03)
-    latex_ID.DrawLatex(0.15, 0.85, f"ID: {ID}")
-    if axis == 0:
-        latex_ID.DrawLatex(0.15, 0.80, f"RebinX(2): {len(ycomp_3sig)} bins")
-    
-    canvas_signal3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_signal.png")
-    canvas_signal3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_signal.eps")
+        line = ROOT.TLine(signal3.GetXaxis().GetXmin(), 0, signal3.GetXaxis().GetXmax(), 0) #y=0 from x=0 to x=100
+        line.SetLineColor(11)
+        line.SetLineWidth(2)
+        line.Draw("same")
 
-    canvas_signal3.Update()
-    canvas_signal3.Close()
-    del canvas_signal3
+        latex_ID = ROOT.TLatex()
+        latex_ID.SetNDC()
+        latex_ID.SetTextSize(0.03)
+        latex_ID.DrawLatex(0.15, 0.85, f"ID: {ID}")
+        if axis == 0:
+            latex_ID.DrawLatex(0.15, 0.80, f"RebinX(2): {len(ycomp_3sig)} bins")
+
+        canvas_signal3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_signal.png")
+        canvas_signal3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_signal.eps")
+
+        canvas_signal3.Update()
+        canvas_signal3.Close()
+        del canvas_signal3
 
     out = pd.DataFrame([[str(signal_sig)+"to"+str(sideband_sig)],[ADU3]])
     raw = pd.DataFrame([[str(signal_sig)+"to"+str(sideband_sig)],[integral]])
@@ -583,141 +587,142 @@ ROOT.gPad.Update()
 c.SaveAs(f"{path}/{directory}/Total-Stacked-{res_folder}.png")
 c.SaveAs(f"{path}/{directory}/Total-Stacked-{res_folder}.eps")
 
-# Draw
-cx = ROOT.TCanvas("cx", "cx", 800, 600)
-hsx.Draw("HIST")
+if SAVE_SIGNAL_PLOTS:
+    # Draw
+    cx = ROOT.TCanvas("cx", "cx", 800, 600)
+    hsx.Draw("HIST")
 
-hsum.Reset()
+    hsum.Reset()
 
-hsum.Add(h4x)
-hsum.Add(h2x)
-hsum.Add(h3x)
+    hsum.Add(h4x)
+    hsum.Add(h2x)
+    hsum.Add(h3x)
 
-# Legend
-#legx = ROOT.TLegend(0.2, 0.7, 0.4, 0.9)
-#legx.AddEntry(h2x, "2nd Degree Polynomial (X Collapse)", "f")
-#legx.AddEntry(h3x, "3rd Degree Polynomial (X Collapse)", "f")
-#legx.AddEntry(h4x, "4th Degree Polynomial (X Collapse)", "f")
-#legx.Draw()
+    # Legend
+    #legx = ROOT.TLegend(0.2, 0.7, 0.4, 0.9)
+    #legx.AddEntry(h2x, "2nd Degree Polynomial (X Collapse)", "f")
+    #legx.AddEntry(h3x, "3rd Degree Polynomial (X Collapse)", "f")
+    #legx.AddEntry(h4x, "4th Degree Polynomial (X Collapse)", "f")
+    #legx.Draw()
 
-statsx = ROOT.TPaveText(0.75, 0.75, 0.95, 0.95, "NDC")
-statsx.AddText(f"Entries = {hsum.GetEntries():.0f}")
-statsx.AddText(f"Mean = {hsum.GetMean():.3f}")
-statsx.AddText(f"RMS = {hsum.GetRMS():.3f}")
-statsx.AddText(f"Percent = {(hsum.GetRMS()/hsum.GetMean())*100:.1f}%")
-statsx.AddText(f"Underflow = {hsum.GetBinContent(0)}")
-statsx.AddText(f"overflow = {hsum.GetBinContent(hsum.GetNbinsX()+1)}")
-statsx.Draw()
+    statsx = ROOT.TPaveText(0.75, 0.75, 0.95, 0.95, "NDC")
+    statsx.AddText(f"Entries = {hsum.GetEntries():.0f}")
+    statsx.AddText(f"Mean = {hsum.GetMean():.3f}")
+    statsx.AddText(f"RMS = {hsum.GetRMS():.3f}")
+    statsx.AddText(f"Percent = {(hsum.GetRMS()/hsum.GetMean())*100:.1f}%")
+    statsx.AddText(f"Underflow = {hsum.GetBinContent(0)}")
+    statsx.AddText(f"overflow = {hsum.GetBinContent(hsum.GetNbinsX()+1)}")
+    statsx.Draw()
 
-latex_ID = ROOT.TLatex()
-latex_ID.SetNDC()
-latex_ID.SetTextSize(0.03)
-latex_ID.DrawLatex(0.10, 0.85, f"ID: {ID}")
+    latex_ID = ROOT.TLatex()
+    latex_ID.SetNDC()
+    latex_ID.SetTextSize(0.03)
+    latex_ID.DrawLatex(0.10, 0.85, f"ID: {ID}")
 
-cx.Update()
-cx.Draw()
-cx.SaveAs(path+"/"+directory+"/"+res_folder+"_x/Stacked-"+res_folder+".png")
-cx.SaveAs(path+"/"+directory+"/"+res_folder+"_x/Stacked-"+res_folder+".eps")
+    cx.Update()
+    cx.Draw()
+    cx.SaveAs(path+"/"+directory+"/"+res_folder+"_x/Stacked-"+res_folder+".png")
+    cx.SaveAs(path+"/"+directory+"/"+res_folder+"_x/Stacked-"+res_folder+".eps")
 
-hsum.Reset()
+    hsum.Reset()
 
-hsum.Add(h4y)
-hsum.Add(h2y)
-hsum.Add(h3y)
+    hsum.Add(h4y)
+    hsum.Add(h2y)
+    hsum.Add(h3y)
 
-cy = ROOT.TCanvas("cy", "cy", 800, 600)
-hsy.Draw("HIST")
+    cy = ROOT.TCanvas("cy", "cy", 800, 600)
+    hsy.Draw("HIST")
 
-# Legend
-legy = ROOT.TLegend(0.2, 0.7, 0.4, 0.9)
-legy.AddEntry(h2y, "2nd Degree Polynomial (Y Collapse)", "f")
-legy.AddEntry(h3y, "3rd Degree Polynomial (Y Collapse)", "f")
-legy.AddEntry(h4y, "4th Degree Polynomial (Y Collapse)", "f")
-legy.Draw()
+    # Legend
+    legy = ROOT.TLegend(0.2, 0.7, 0.4, 0.9)
+    legy.AddEntry(h2y, "2nd Degree Polynomial (Y Collapse)", "f")
+    legy.AddEntry(h3y, "3rd Degree Polynomial (Y Collapse)", "f")
+    legy.AddEntry(h4y, "4th Degree Polynomial (Y Collapse)", "f")
+    legy.Draw()
 
-statsy = ROOT.TPaveText(0.75, 0.75, 0.95, 0.95, "NDC")
-statsy.AddText(f"Entries = {hsum.GetEntries():.0f}")
-statsy.AddText(f"Mean = {hsum.GetMean():.3f}")
-statsy.AddText(f"RMS = {hsum.GetRMS():.3f}")
-statsy.AddText(f"Percent = {(hsum.GetRMS()/hsum.GetMean())*100:.1f}%")
-statsy.AddText(f"Underflow = {hsum.GetBinContent(0)}")
-statsy.AddText(f"overflow = {hsum.GetBinContent(hsum.GetNbinsX()+1)}")
-statsy.Draw()
+    statsy = ROOT.TPaveText(0.75, 0.75, 0.95, 0.95, "NDC")
+    statsy.AddText(f"Entries = {hsum.GetEntries():.0f}")
+    statsy.AddText(f"Mean = {hsum.GetMean():.3f}")
+    statsy.AddText(f"RMS = {hsum.GetRMS():.3f}")
+    statsy.AddText(f"Percent = {(hsum.GetRMS()/hsum.GetMean())*100:.1f}%")
+    statsy.AddText(f"Underflow = {hsum.GetBinContent(0)}")
+    statsy.AddText(f"overflow = {hsum.GetBinContent(hsum.GetNbinsX()+1)}")
+    statsy.Draw()
 
-latex_ID = ROOT.TLatex()
-latex_ID.SetNDC()
-latex_ID.SetTextSize(0.03)
-latex_ID.DrawLatex(0.1, 0.85, f"ID: {ID}")
+    latex_ID = ROOT.TLatex()
+    latex_ID.SetNDC()
+    latex_ID.SetTextSize(0.03)
+    latex_ID.DrawLatex(0.1, 0.85, f"ID: {ID}")
 
-cy.Update()
-cy.Draw()
-cy.SaveAs(path+"/"+directory+"/"+res_folder+"_y/Stacked-"+res_folder+".png")
-cy.SaveAs(path+"/"+directory+"/"+res_folder+"_y/Stacked-"+res_folder+".eps")
+    cy.Update()
+    cy.Draw()
+    cy.SaveAs(path+"/"+directory+"/"+res_folder+"_y/Stacked-"+res_folder+".png")
+    cy.SaveAs(path+"/"+directory+"/"+res_folder+"_y/Stacked-"+res_folder+".eps")
 
-c2x = ROOT.TCanvas("c2x", "c2x", 800, 600)
-h2x.Draw("HIST")
+    c2x = ROOT.TCanvas("c2x", "c2x", 800, 600)
+    h2x.Draw("HIST")
 
-latex_ID = ROOT.TLatex()
-latex_ID.SetNDC()
-latex_ID.SetTextSize(0.03)
-latex_ID.DrawLatex(0.1, 0.85, f"ID: {ID}")
+    latex_ID = ROOT.TLatex()
+    latex_ID.SetNDC()
+    latex_ID.SetTextSize(0.03)
+    latex_ID.DrawLatex(0.1, 0.85, f"ID: {ID}")
 
-c2x.SaveAs(path+"/"+directory+"/"+res_folder+"_x/2nd_degree/poly2-signal-hist_x.png")
-c2x.SaveAs(path+"/"+directory+"/"+res_folder+"_x/2nd_degree/poly2-signal-hist_x.eps")
+    c2x.SaveAs(path+"/"+directory+"/"+res_folder+"_x/2nd_degree/poly2-signal-hist_x.png")
+    c2x.SaveAs(path+"/"+directory+"/"+res_folder+"_x/2nd_degree/poly2-signal-hist_x.eps")
 
-c3x = ROOT.TCanvas("c3x", "c3x", 800, 600)
-h3x.Draw("HIST")
+    c3x = ROOT.TCanvas("c3x", "c3x", 800, 600)
+    h3x.Draw("HIST")
 
-latex_ID = ROOT.TLatex()
-latex_ID.SetNDC()
-latex_ID.SetTextSize(0.03)
-latex_ID.DrawLatex(0.1, 0.85, f"ID: {ID}")
+    latex_ID = ROOT.TLatex()
+    latex_ID.SetNDC()
+    latex_ID.SetTextSize(0.03)
+    latex_ID.DrawLatex(0.1, 0.85, f"ID: {ID}")
 
-c3x.SaveAs(path+"/"+directory+"/"+res_folder+"_x/3rd_degree/poly3-signal-hist_x.png")
-c3x.SaveAs(path+"/"+directory+"/"+res_folder+"_x/3rd_degree/poly3-signal-hist_x.eps")
+    c3x.SaveAs(path+"/"+directory+"/"+res_folder+"_x/3rd_degree/poly3-signal-hist_x.png")
+    c3x.SaveAs(path+"/"+directory+"/"+res_folder+"_x/3rd_degree/poly3-signal-hist_x.eps")
 
-c4x = ROOT.TCanvas("c4x", "c4x", 800, 600)
-h4x.Draw("HIST")
+    c4x = ROOT.TCanvas("c4x", "c4x", 800, 600)
+    h4x.Draw("HIST")
 
-latex_ID = ROOT.TLatex()
-latex_ID.SetNDC()
-latex_ID.SetTextSize(0.03)
-latex_ID.DrawLatex(0.1, 0.85, f"ID: {ID}")
+    latex_ID = ROOT.TLatex()
+    latex_ID.SetNDC()
+    latex_ID.SetTextSize(0.03)
+    latex_ID.DrawLatex(0.1, 0.85, f"ID: {ID}")
 
-c4x.SaveAs(path+"/"+directory+"/"+res_folder+"_x/4th_degree/poly4-signal-hist_x.png")
+    c4x.SaveAs(path+"/"+directory+"/"+res_folder+"_x/4th_degree/poly4-signal-hist_x.png")
 
-c2y = ROOT.TCanvas("c2y", "c2y", 800, 600)
-h2y.Draw("HIST")
+    c2y = ROOT.TCanvas("c2y", "c2y", 800, 600)
+    h2y.Draw("HIST")
 
-latex_ID = ROOT.TLatex()
-latex_ID.SetNDC()
-latex_ID.SetTextSize(0.03)
-latex_ID.DrawLatex(0.1, 0.85, f"ID: {ID}")
+    latex_ID = ROOT.TLatex()
+    latex_ID.SetNDC()
+    latex_ID.SetTextSize(0.03)
+    latex_ID.DrawLatex(0.1, 0.85, f"ID: {ID}")
 
-c2y.SaveAs(path+"/"+directory+"/"+res_folder+"_y/2nd_degree/poly2-signal-hist_y.png")
-c2y.SaveAs(path+"/"+directory+"/"+res_folder+"_y/2nd_degree/poly2-signal-hist_y.eps")
+    c2y.SaveAs(path+"/"+directory+"/"+res_folder+"_y/2nd_degree/poly2-signal-hist_y.png")
+    c2y.SaveAs(path+"/"+directory+"/"+res_folder+"_y/2nd_degree/poly2-signal-hist_y.eps")
 
-c3y = ROOT.TCanvas("c3y", "c3y", 800, 600)
-h3y.Draw("HIST")
+    c3y = ROOT.TCanvas("c3y", "c3y", 800, 600)
+    h3y.Draw("HIST")
 
-latex_ID = ROOT.TLatex()
-latex_ID.SetNDC()
-latex_ID.SetTextSize(0.03)
-latex_ID.DrawLatex(0.1, 0.85, f"ID: {ID}")
+    latex_ID = ROOT.TLatex()
+    latex_ID.SetNDC()
+    latex_ID.SetTextSize(0.03)
+    latex_ID.DrawLatex(0.1, 0.85, f"ID: {ID}")
 
-c3y.SaveAs(path+"/"+directory+"/"+res_folder+"_y/3rd_degree/poly3-signal-hist_y.png")
-c3y.SaveAs(path+"/"+directory+"/"+res_folder+"_y/3rd_degree/poly3-signal-hist_y.eps")
+    c3y.SaveAs(path+"/"+directory+"/"+res_folder+"_y/3rd_degree/poly3-signal-hist_y.png")
+    c3y.SaveAs(path+"/"+directory+"/"+res_folder+"_y/3rd_degree/poly3-signal-hist_y.eps")
 
-c4y = ROOT.TCanvas("c4y", "c4y", 800, 600)
-h4y.Draw("HIST")
+    c4y = ROOT.TCanvas("c4y", "c4y", 800, 600)
+    h4y.Draw("HIST")
 
-latex_ID = ROOT.TLatex()
-latex_ID.SetNDC()
-latex_ID.SetTextSize(0.03)
-latex_ID.DrawLatex(0.1, 0.85, f"ID: {ID}")
+    latex_ID = ROOT.TLatex()
+    latex_ID.SetNDC()
+    latex_ID.SetTextSize(0.03)
+    latex_ID.DrawLatex(0.1, 0.85, f"ID: {ID}")
 
-c4y.SaveAs(path+"/"+directory+"/"+res_folder+"_y/4th_degree/poly4-signal-hist_y.png")
-c4y.SaveAs(path+"/"+directory+"/"+res_folder+"_y/4th_degree/poly4-signal-hist_y.eps")
+    c4y.SaveAs(path+"/"+directory+"/"+res_folder+"_y/4th_degree/poly4-signal-hist_y.png")
+    c4y.SaveAs(path+"/"+directory+"/"+res_folder+"_y/4th_degree/poly4-signal-hist_y.eps")
 
 #print(time)
 #print(time_cut)
