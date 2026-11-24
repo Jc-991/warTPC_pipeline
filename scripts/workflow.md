@@ -369,6 +369,13 @@ Both `detect` and `remove` also save
 `optical/<run>/diagnostics/tot-vs-time-before-sparks.png` from all hits,
 before tagging or masking any interval.
 
+`Spark count` counts distinct high-ToT bursts in the unfiltered data. A burst
+needs at least two hits at or above 8,000 stored ToT units, with consecutive
+qualifying hits at most 50 ms apart. These provisional settings come from the
+vr22 spectra. The hit-rate windows used for exposure removal are logged
+separately. To count from saved HDF5 files without rerunning an optical fit,
+run `python3 blackbox/spark_detection.py <run>/output.hdf5`.
+
 The detector flags 10 ms hit-count bins above a local median threshold. It
 excludes the flagged bins plus 10 ms before and 50 ms after, merging overlapping
 windows. These are heuristic candidates and the recovery margin is a starting

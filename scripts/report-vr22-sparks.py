@@ -20,7 +20,7 @@ PLOTS = (
     "tot-vs-time-before-sparks.png",
 )
 SUMMARY_COLUMNS = (
-    "run", "candidate_intervals", "removal_applied", "exposure_before_s",
+    "run", "spark_count", "removal_applied", "exposure_before_s",
     "exposure_after_s", "exposure_excluded_s", "S_O_ms", "S_O_norm_ms_per_s",
     "S_O_norm_rms_ms_per_s", "issues",
 )
@@ -71,9 +71,13 @@ def main():
                 issues.append("spark mode was not remove")
             count = int(report["Candidate intervals"])
             before, after = map(float, report["Exposure before/after (s)"].split(" / "))
-            row.update(candidate_intervals=count, removal_applied=report["Removal applied"],
+            row.update(removal_applied=report["Removal applied"],
                        exposure_before_s=before, exposure_after_s=after,
                        exposure_excluded_s=float(report["Exposure excluded (s)"]))
+            if "Spark count" in report:
+                row["spark_count"] = int(report["Spark count"])
+            else:
+                issues.append("spark count unavailable in this report")
             if report["Removal applied"].startswith("rejected"):
                 issues.append(report["Removal applied"])
             intervals = re.findall(r"^Candidate since first hit \(s\): (\S+) to (\S+)$", text, re.M)
@@ -110,7 +114,8 @@ def main():
         else:
             issues.append("missing before/after X projection")
         row["issues"] = "; ".join(issues)
-        print(f"{run}: {row['issues'] or str(row.get('candidate_intervals')) + ' candidate intervals'}")
+        print(f"{run}: spark count {row.get('spark_count', 'unavailable')}"
+              + (f" ({row['issues']})" if issues else ""))
 
     write_csv(args.output / "run_summary.csv", SUMMARY_COLUMNS, summary)
     write_csv(args.output / "excluded_intervals.csv",

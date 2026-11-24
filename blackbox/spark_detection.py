@@ -7,6 +7,17 @@ import numpy as np
 from scipy.ndimage import median_filter
 
 
+SPARK_TOT_THRESHOLD = 8000
+SPARK_GAP_TICKS = 500_000_000_000  # 50 ms in the stored ToA units
+
+
+def count_sparks(toa, tot):
+    """Count clusters of at least two high-ToT hits in the original data."""
+    high_toa = np.sort(toa[tot >= SPARK_TOT_THRESHOLD])
+    groups = np.split(high_toa, np.flatnonzero(np.diff(high_toa) > SPARK_GAP_TICKS) + 1)
+    return sum(len(group) >= 2 for group in groups)
+
+
 def save_tot_spectrum(seconds, tot, time_bins, width, output):
     """Plot the unfiltered ToT distribution as a function of run time."""
     from matplotlib import pyplot as plt
@@ -96,11 +107,28 @@ def spark_cut(toa, tot, report_path):
         f"Exposure excluded (s): {excluded:.9g}",
     ]
     if mode != "off":
+        sparks = count_sparks(toa, tot)
+        lines.insert(2, f"Spark count: {sparks}")
+        lines.append(f"Spark count rule: at least two hits with ToT >= {SPARK_TOT_THRESHOLD}, grouped across gaps of up to 50 ms")
         lines.append("Detection: 10 ms bins, local median over 101 bins, 10 ms before and 50 ms after flagged bins")
         lines.extend(f"Candidate since first hit (s): {start:.9g} to {min(stop, duration):.9g}"
                      for start, stop in intervals)
     report.write_text("\n".join(lines) + "\n")
-    print(f"Spark mode: {mode}; removal applied: {status}; report: {report}", flush=True)
+    count_text = f"; spark count: {sparks}" if mode != "off" else ""
+    print(f"Spark mode: {mode}{count_text}; removal applied: {status}; report: {report}", flush=True)
     if rejected:
         raise ValueError(f"Spark cut rejected; see {report}")
     return keep, duration, excluded
+
+
+if __name__ == "__main__":
+    import argparse
+    import h5py
+
+    parser = argparse.ArgumentParser(description="Count high-ToT sparks in saved optical runs.")
+    parser.add_argument("hdf5", type=Path, nargs="+")
+    args = parser.parse_args()
+    for path in args.hdf5:
+        with h5py.File(path, "r") as source:
+            count = count_sparks(source["PixelHits/toa"][:], source["PixelHits/tot"][:])
+        print(f"{path.parent.name}: {count}")
