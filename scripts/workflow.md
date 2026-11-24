@@ -365,6 +365,9 @@ After reviewing the candidates, use `WARTPC_SPARK_MODE=remove` with a separate
 results directory. The default is `off`. Each run writes
 `optical/<run>/diagnostics/spark_status.txt` with the mode, candidate intervals,
 whether removal was applied, the hit counts, and the usable exposure.
+Both `detect` and `remove` also save
+`optical/<run>/diagnostics/tot-vs-time-before-sparks.png` from all hits,
+before tagging or masking any interval.
 
 The detector flags 10 ms hit-count bins above a local median threshold. It
 excludes the flagged bins plus 10 ms before and 50 ms after, merging overlapping
@@ -375,9 +378,10 @@ input stays intact.
 
 ## Re-running
 
-Plots inside `signal-integral_x/` and `signal-integral_y/` are opt-in.
-To generate them, prefix the optical command with `WARTPC_SIGNAL_PLOTS=1`.
-The integral CSVs and the combined integral plot are produced in either mode.
+With plotting enabled, `plots/optical_per_run/<run>/` contains the four
+standard optical PNGs, including when spark removal is on. To save the
+additional per-axis plots, prefix the optical command with
+`WARTPC_SIGNAL_PLOTS=1`.
 
 - **Same dataset folder, same `<output_dir>`:** optical and charge overwrite
   their earlier results, and the plots are remade. Nothing is unzipped.

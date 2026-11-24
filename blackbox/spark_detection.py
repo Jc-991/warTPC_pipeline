@@ -7,7 +7,29 @@ import numpy as np
 from scipy.ndimage import median_filter
 
 
-def spark_cut(toa, report_path):
+def save_tot_spectrum(seconds, tot, time_bins, width, output):
+    """Plot the unfiltered ToT distribution as a function of run time."""
+    from matplotlib import pyplot as plt
+    from matplotlib.colors import LogNorm
+
+    edges = np.arange(time_bins + 1) * width
+    counts, _, tot_edges = np.histogram2d(seconds, tot, bins=(edges, 128))
+    fig, ax = plt.subplots(figsize=(12, 4), layout="constrained")
+    try:
+        image = ax.imshow(
+            counts.T, origin="lower", aspect="auto", interpolation="nearest",
+            extent=(edges[0], edges[-1], tot_edges[0], tot_edges[-1]),
+            norm=LogNorm(vmin=1, vmax=max(2, counts.max())),
+        )
+        fig.colorbar(image, ax=ax, label="Hits per bin")
+        ax.set(xlabel="Time since first hit (s)", ylabel="Hit ToT (stored units)",
+               title="ToT versus arrival time before spark tagging")
+        fig.savefig(output, dpi=170)
+    finally:
+        plt.close(fig)
+
+
+def spark_cut(toa, tot, report_path):
     """Return the optional keep mask, original exposure, and excluded seconds."""
     mode = os.environ.get("WARTPC_SPARK_MODE", "off").strip().lower()
     if mode not in ("off", "detect", "remove"):
@@ -19,6 +41,8 @@ def spark_cut(toa, report_path):
     duration = 0.0
     intervals = []
     keep = None
+    report = Path(report_path)
+    report.parent.mkdir(parents=True, exist_ok=True)
     if count:
         if mode == "off":
             duration = (int(toa[-1]) - int(toa[0])) / 1e13
@@ -27,6 +51,8 @@ def spark_cut(toa, report_path):
             duration = float(seconds.max())
             bins = (seconds / width).astype(np.intp)
             hits = np.bincount(bins)
+            save_tot_spectrum(seconds, tot, len(hits), width,
+                              report.with_name("tot-vs-time-before-sparks.png"))
             baseline = median_filter(hits, size=101, mode="reflect")
             threshold = np.maximum.reduce((
                 np.full(len(hits), 30.0),
@@ -60,8 +86,6 @@ def spark_cut(toa, report_path):
         status = "no (no candidate intervals)"
     else:
         status = f"no ({mode} mode)"
-    report = Path(report_path)
-    report.parent.mkdir(parents=True, exist_ok=True)
     lines = [
         f"Mode: {mode}",
         f"Removal applied: {status}",

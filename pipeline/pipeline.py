@@ -202,13 +202,12 @@ def main():
    r['settings_id']=vals[0]
    if vals[0]!=run:warnings.append(f'{run}: settings ID is {vals[0]}; result associated with folder {run}. Verify metadata.')
    r['optical']=float(vals[8]);r['optical_err']=float(vals[9])
-   targets={'Total-Stacked-signal-integral.png':'combined_integral_distribution.png'}
-   if os.environ.get('WARTPC_SIGNAL_PLOTS') == '1':
-    targets.update({
+   targets={
+     'Total-Stacked-signal-integral.png':'combined_integral_distribution.png',
      'signal-integral_x/2nd_degree/4to8/4to8_signal.png':'x_projection_signal.png',
      'signal-integral_y/2nd_degree/4to8/4to8_signal.png':'y_projection_signal.png',
      'signal-integral_x/2nd_degree/4to8/ToT-image.png':'2D_integrated_ToT.png',
-    })
+   }
    dst=out/'optical_per_run'/run;dst.mkdir()
    for rel,name in targets.items():
     if (rd/rel).is_file():shutil.copy2(rd/rel,dst/name)

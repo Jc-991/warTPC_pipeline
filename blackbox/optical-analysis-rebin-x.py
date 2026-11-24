@@ -55,7 +55,7 @@ toa = f["PixelHits"]["toa"][::step]
 x = f["PixelHits"]["x"][::step]
 y = f["PixelHits"]["y"][::step]
 
-keep, time, time_cut = spark_cut(toa, f"{path}/{directory}/diagnostics/spark_status.txt")
+keep, time, time_cut = spark_cut(toa, tot, f"{path}/{directory}/diagnostics/spark_status.txt")
 spark_cutting = keep is not None and not keep.all()
 if spark_cutting:
     toa, tot, x, y = toa[keep], tot[keep], x[keep], y[keep]
@@ -161,8 +161,10 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
     folder=path+"/"+directory+"/"+res_folder+"/"+str(poly_type)+"/"+str(signal_sig)+"to"+str(sideband_sig)
     csvfolder=path+"/"+directory+"/"+res_folder+"/"+str(poly_type)
     
+    save_standard_plot = order == 2 and signal_sig == 4 and sideband_sig == 8
+
     try:
-        os.makedirs(folder if SAVE_SIGNAL_PLOTS else csvfolder)
+        os.makedirs(folder if save_standard_plot or SAVE_SIGNAL_PLOTS else csvfolder)
     except:
         #print("error making folder at "+folder)
         pass
@@ -173,7 +175,7 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
     signal_high = int(round(mean+signal_sig*np.abs(sig),0))
     sideband_high = int(round(mean+sideband_sig*np.abs(sig),0))
         
-    if SAVE_SIGNAL_PLOTS:
+    if SAVE_SIGNAL_PLOTS or (save_standard_plot and axis == 0):
         tot = plt.figure(figsize=(10,10))
         plt.imshow(perChipTOT)
         plt.tick_params(axis='both', which='major', labelsize=20)
@@ -329,7 +331,7 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
     #print(sum(sig3_full))
     #print(exposure)
 
-    if SAVE_SIGNAL_PLOTS:
+    if SAVE_SIGNAL_PLOTS or save_standard_plot:
         signal3 = ROOT.TGraphErrors(len(sig3_full_bins), sig3_full_bins, sig3_full,0,sig3_full_err)
 
         canvas_signal3 = ROOT.TCanvas("c4", "TGraph Example", 800, 600)
@@ -369,7 +371,8 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
             latex_ID.DrawLatex(0.15, 0.80, f"RebinX(2): {len(ycomp_3sig)} bins")
 
         canvas_signal3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_signal.png")
-        canvas_signal3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_signal.eps")
+        if SAVE_SIGNAL_PLOTS:
+            canvas_signal3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_signal.eps")
 
         canvas_signal3.Update()
         canvas_signal3.Close()
