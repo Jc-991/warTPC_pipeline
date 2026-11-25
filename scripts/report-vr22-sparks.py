@@ -84,7 +84,9 @@ def main():
             row.update(removal_applied=report["Removal applied"],
                        exposure_before_s=before, exposure_after_s=after,
                        exposure_excluded_s=float(report["Exposure excluded (s)"]))
-            if "Hits above ToT cut" in report:
+            if "Time bins above ToT cut" in report:
+                row["spark_count"] = int(report["Time bins above ToT cut"])
+            elif "Hits above ToT cut" in report:
                 row["spark_count"] = int(report["Hits above ToT cut"])
             elif report.get("Spark count rule", "").startswith("individual hits"):
                 row["spark_count"] = int(report["Spark count"])

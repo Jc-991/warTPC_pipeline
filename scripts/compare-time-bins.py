@@ -8,6 +8,9 @@ import sys
 
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "blackbox"))
+from spark_detection import flag_sparks, group_tot, save_tot_distribution
+
 
 TICKS_PER_MS = 10_000_000_000
 
@@ -23,8 +26,8 @@ def bin_width(value):
 
 
 def group_hits(elapsed, tot, width):
-    bins, inverse, counts = np.unique(elapsed // width, return_inverse=True, return_counts=True)
-    return bins, counts, np.bincount(inverse, weights=tot)
+    bins, _, counts, summed_tot = group_tot(elapsed, tot, width)
+    return bins, counts, summed_tot
 
 
 def main():
@@ -52,9 +55,6 @@ def main():
 
     elapsed = toa - toa.min()
     if args.cut_histogram:
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "blackbox"))
-        from spark_detection import flag_sparks, save_tot_distribution
-
         _, counts, sums = group_hits(elapsed, tot, args.bins_ms[0])
         cutoff, flagged = flag_sparks(sums)
         save_tot_distribution(sums, args.output, flagged, grouped=True)

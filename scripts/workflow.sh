@@ -25,7 +25,7 @@ Usage: $(basename "$0") -i <dataset_dir> -o <output_dir> [--run optical|charge|b
                   runs use a fresh results directory if one already exists.
   --kind K        pressure or voltage: marker type in the plots (default: guessed
                   from the dataset name, e.g. pressure-pass-06 or prp*)
-  --sparks on|off  optical spark removal (default: on). With plots, run
+  --sparks on|off  grouped optical spark removal (default: on). With plots, run
                   before/after fits and export nine PNGs plus both summaries
                   per run under <name>_results/plots/optical_per_run/
   --rebin-x off|N  merge N adjacent X pixels in the optical fits (2, 4, 8, 16);
@@ -169,6 +169,7 @@ if [[ -n "$selection" ]]; then
   input="$input_view"
 fi
 export WARTPC_REBIN=1 WARTPC_REBIN_X="$rebin_x"
+export WARTPC_SPARK_METHOD=grouped
 for step in "${steps[@]}"; do
   echo; echo "=== $step ==="
   if [[ ! -d "$input/$step" ]]; then

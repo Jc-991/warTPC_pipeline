@@ -505,7 +505,7 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
             latex_info = ROOT.TLatex()
             latex_info.SetNDC()
             latex_info.SetTextSize(0.03)
-            latex_info.DrawLatex(0.55, 0.75, f"High-ToT hits removed: {removed_hits:,}")
+            latex_info.DrawLatex(0.55, 0.75, f"Hits removed by spark cut: {removed_hits:,}")
 
         latex_ID = ROOT.TLatex()
         latex_ID.SetNDC()
@@ -566,7 +566,7 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
             latex_info2 = ROOT.TLatex()
             latex_info2.SetNDC()
             latex_info2.SetTextSize(0.03)
-            latex_info2.DrawLatex(0.55, 0.75, f"High-ToT hits removed: {removed_hits:,}")
+            latex_info2.DrawLatex(0.55, 0.75, f"Hits removed by spark cut: {removed_hits:,}")
 
         line = ROOT.TLine(signal3.GetXaxis().GetXmin(), 0, signal3.GetXaxis().GetXmax(), 0) #y=0 from x=0 to x=100
         line.SetLineColor(11)

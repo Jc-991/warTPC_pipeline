@@ -8,6 +8,14 @@ import numpy as np
 
 
 TOT_CUT_RMS = 10
+TOA_TICKS_PER_SECOND = 10_000_000_000_000
+# Five ms on the reinterpreted axis is five microseconds of detector time.
+GROUPED_SPARK_WIDTH_TICKS = 50_000_000
+
+
+def group_tot(elapsed, tot, width):
+    bins, inverse, counts = np.unique(elapsed // width, return_inverse=True, return_counts=True)
+    return bins, inverse, counts, np.bincount(inverse, weights=tot)
 
 
 def plot_statistics(values, lower=None, upper=None, quantity=None):
@@ -114,26 +122,48 @@ def spark_cut(toa, tot, report_path, *, mode=None):
     if mode not in ("off", "detect", "remove"):
         raise ValueError("WARTPC_SPARK_MODE must be off, detect, or remove")
 
-    width = 0.01
+    method = os.environ.get("WARTPC_SPARK_METHOD", "hit")
+    if method not in ("hit", "grouped"):
+        raise ValueError("WARTPC_SPARK_METHOD must be hit or grouped")
+    grouped = method == "grouped"
+    width = 0.01  # Time bin width for the overview spectrum.
     count = len(toa)
-    duration = 0.0
-    cutoff, flagged = flag_sparks(tot)
+    duration = excluded = 0.0
+    intervals = []
+    values = tot
+    cutoff = None
+    flagged = np.zeros(0, dtype=bool)
     keep = None
     report = Path(report_path)
     report.parent.mkdir(parents=True, exist_ok=True)
     if count:
         first = toa.min()
-        duration = (int(toa.max()) - int(first)) / 1e13
+        span = int(toa.max()) - int(first)
+        duration = span / TOA_TICKS_PER_SECOND
         if mode != "off":
-            seconds = (toa - first) / 1e13
-            bins = (seconds / width).astype(np.intp)
-            time_bins = int(bins.max()) + 1
+            elapsed = toa - first
+            seconds = elapsed / TOA_TICKS_PER_SECOND
+            time_bins = int(duration / width) + 1
             save_tot_spectrum(seconds, tot, time_bins, width,
                               report.with_name("tot-vs-time-before-sparks.png"))
-            if mode == "remove" and flagged.any():
-                keep = ~flagged
+            if grouped:
+                bins, inverse, _, values = group_tot(elapsed, tot, GROUPED_SPARK_WIDTH_TICKS)
+                cutoff, flagged = flag_sparks(values)
+                intervals = [
+                    (int(bin_id) * GROUPED_SPARK_WIDTH_TICKS,
+                     min((int(bin_id) + 1) * GROUPED_SPARK_WIDTH_TICKS, span))
+                    for bin_id in bins[flagged]
+                ]
+                if mode == "remove" and intervals:
+                    keep = ~flagged[inverse]
+                    excluded = sum(stop - start for start, stop in intervals) / TOA_TICKS_PER_SECOND
+            else:
+                cutoff, flagged = flag_sparks(values)
+                if mode == "remove" and flagged.any():
+                    keep = ~flagged
+        elif not grouped:
+            cutoff, flagged = flag_sparks(values)
 
-    excluded = 0.0  # An individual-hit cut does not veto any time intervals.
     remaining = int(keep.sum()) if keep is not None else count
     removed = count - remaining
     usable = duration - excluded
@@ -143,7 +173,7 @@ def spark_cut(toa, tot, report_path, *, mode=None):
     elif removed:
         status = "yes"
     elif mode == "remove":
-        status = "no (no hits above the ToT cut)"
+        status = "no (no entries above the ToT cut)"
     else:
         status = f"no ({mode} mode)"
     sparks = int(flagged.sum())
@@ -152,16 +182,26 @@ def spark_cut(toa, tot, report_path, *, mode=None):
         f"Removal applied: {status}",
         f"Spark count: {sparks}",
         f"Spark algorithm iterations: {int(mode != 'off' and cutoff is not None)}",
-        "Candidate intervals: 0",
+        f"Candidate intervals: {len(intervals)}",
         f"Hits before/kept: {count} / {remaining}",
         f"Hits excluded: {removed}",
         f"Exposure before/after (s): {duration:.9g} / {usable:.9g}",
         f"Exposure excluded (s): {excluded:.9g}",
     ]
-    lines.append(f"Spark count rule: individual hits with ToT > mean + {TOT_CUT_RMS} RMS")
+    if grouped:
+        lines.extend((
+            f"Spark count rule: occupied time bins with summed ToT > mean + {TOT_CUT_RMS} RMS",
+            "Grouping width (s): 0.000005",
+        ))
+        for start, stop in intervals:
+            lines.append(f"Candidate since first hit (s): "
+                         f"{start / TOA_TICKS_PER_SECOND:.13f} to {stop / TOA_TICKS_PER_SECOND:.13f}")
+    else:
+        lines.append(f"Spark count rule: individual hits with ToT > mean + {TOT_CUT_RMS} RMS")
     if cutoff is not None:
         lines.append(f"ToT cut (strictly greater than): {cutoff:.9g}")
-        lines.append(f"Hits above ToT cut: {sparks}")
+        label = "Time bins above ToT cut" if grouped else "Hits above ToT cut"
+        lines.append(f"{label}: {sparks}")
     report.write_text("\n".join(lines) + "\n")
     print(f"Spark mode: {mode}; spark count: {sparks}; removal applied: {status}; report: {report}", flush=True)
     if rejected:
@@ -173,7 +213,9 @@ def spark_cut(toa, tot, report_path, *, mode=None):
             save_tot_spectrum(seconds, tot, time_bins, width,
                               report.with_name("tot-vs-time-spark-removal.png"),
                               removed=removed_mask)
-        save_tot_distribution(tot, report.with_name("tot-distribution-before-sparks.png"), removed_mask)
+        histogram_mask = flagged if mode == "remove" else None
+        save_tot_distribution(values, report.with_name("tot-distribution-before-sparks.png"),
+                              histogram_mask, grouped=grouped)
     return keep, duration, excluded
 
 
