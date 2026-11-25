@@ -11,17 +11,25 @@ CONDITION_COLUMNS = (
 )
 TEXT_COLUMNS = (
     ("runID", "run"),
-    *((key, key) for key in CONDITION_COLUMNS),
-    ("original_exposure", "exposure_before_s"),
+    ("settings_id", "settings_id"),
+    ("id_mismatch", "id_mismatch"),
+    *((f"V{index}_V", f"V{index}") for index in range(5)),
+    ("pressure_mbar", "pressure_mbar"),
+    ("methane_fraction", "methane_fraction"),
+    ("exposure_time_ms", "exposure_time"),
+    ("v_over_p_kVbar-1", "v_over_p"),
+    ("unavailable", "unavailable"),
+    ("original_exposure_ms", "exposure_before_s"),
     ("number_of_sparks", "spark_count"),
     ("number_of_sparkAlgo_iterations", "spark_algorithm_iterations"),
-    ("total_spark_exposure_removed", "exposure_excluded_s"),
+    ("total_spark_exposure_removed_ms", "exposure_excluded_s"),
     ("percentage_of_removed_exposure", "percentage_of_removed_exposure"),
-    ("exposure_after_spark_removal", "exposure_after_s"),
-    ("S_O", "S_O_ms"),
-    ("S_O^norm", "S_O_norm_ms_per_s"),
+    ("exposure_after_spark_removal_ms", "exposure_after_s"),
+    ("S_O_ms", "S_O_ms"),
+    ("S_O^norm_ms_per_s", "S_O_norm_ms_per_s"),
     ("S_O_error_in_percentage", "S_O_error_in_percentage"),
 )
+EXPOSURE_KEYS = {"exposure_time", "exposure_before_s", "exposure_excluded_s", "exposure_after_s"}
 
 
 def number(value):
@@ -56,27 +64,33 @@ def read_optical_values(run_dir, run):
         settings = values
     settings = (settings + [""] * 8)[:8]
     result["settings_id"] = settings[0].strip()
-    if result["settings_id"] and result["settings_id"] != run:
-        result["id_mismatch"] = f"settings ID '{result['settings_id']}'"
+    result["id_mismatch"] = int(result["settings_id"] != run)
     pressure = result["pressure_mbar"] = number(settings[1])
     voltage = [number(value) for value in settings[2:7]]
     result.update(zip(("V0", "V1", "V2", "V3", "V4"), voltage))
     result["methane_fraction"] = number(settings[7])
     if pressure and pressure > 0 and None not in voltage:
         result["v_over_p"] = (voltage[4] - voltage[3] + voltage[2] - voltage[1]) / pressure
-    result["unavailable"] = ", ".join(
-        key for key in CONDITION_COLUMNS[2:-1] if result.get(key) is None
+    result["unavailable"] = int(
+        not result["settings_id"] or any(
+            result.get(key) is None for key in CONDITION_COLUMNS[2:-1]
+        )
     )
     return result
 
 
 def write_text_summary(path, row):
     with path.open("w", newline="") as handle:
-        handle.write("S_O^norm = S_O / exposure_after_spark_removal\n")
+        handle.write("S_O^norm_ms_per_s = S_O_ms / (exposure_after_spark_removal_ms / 1000)\n")
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
         writer.writerow([label for label, _ in TEXT_COLUMNS])
-        values = (row.get(key) for _, key in TEXT_COLUMNS)
-        writer.writerow([f"{value:.12g}" if isinstance(value, float) else value for value in values])
+        values = []
+        for _, key in TEXT_COLUMNS:
+            value = row.get(key)
+            if key in EXPOSURE_KEYS and value is not None:
+                value *= 1000
+            values.append(f"{value:.12g}" if isinstance(value, float) else value)
+        writer.writerow(values)
 
 
 def write_optical_summary(run_dir):

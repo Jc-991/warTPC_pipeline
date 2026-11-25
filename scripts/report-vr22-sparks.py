@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package the spark study for vr22-06 through vr22-13."""
+"""Package paired optical spark study results."""
 
 import argparse
 import csv
@@ -59,8 +59,10 @@ def main():
     parser.add_argument("before", type=Path, help="dataset results directory with spark removal off")
     parser.add_argument("after", type=Path, help="dataset results directory with spark removal on")
     parser.add_argument("output", type=Path, help="new report directory")
-    parser.add_argument("--runs", nargs="+", choices=RUNS, default=RUNS)
+    parser.add_argument("--runs", nargs="+", default=RUNS, help="optical run folder names (default: vr22-06 through vr22-13)")
     args = parser.parse_args()
+    if any(Path(run).name != run or run in (".", "..") for run in args.runs):
+        parser.error("--runs requires run folder names")
     args.output.mkdir(parents=True)
     summary, windows = [], []
 

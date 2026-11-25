@@ -63,6 +63,7 @@ os.makedirs(diag_folder, exist_ok=True)
 keep, time, time_cut = spark_cut(toa, tot, f"{path}/{directory}/diagnostics/spark_status.txt")
 spark_cutting = keep is not None and not keep.all()
 if spark_cutting:
+    removed_hits = int(np.count_nonzero(~keep))
     toa, tot, x, y = toa[keep], tot[keep], x[keep], y[keep]
 
 if len(toa) == 0:
@@ -102,16 +103,20 @@ REBIN = int(os.environ.get("WARTPC_REBIN", "1") or 1)
 if REBIN < 1 or 256 % REBIN:
     print(f"warning: WARTPC_REBIN={REBIN} does not divide 256; not rebinning")
     REBIN = 1
-# --- rebinX(2) switch (added): WARTPC_REBIN_X=1 merges neighbouring X pixels in
-# pairs (columns 0+1, 2+3, ...) for the 2D Gaussian fit AND for the X
-# projection before the sideband fits (128 X bins at pixel centres 2k+0.5).
-# Default 0 = off, the original behaviour. Set by --rebin-x on in the scripts.
-REBIN_X = os.environ.get("WARTPC_REBIN_X", "0").strip().lower() in ("1", "on", "yes", "true")
-if REBIN_X and REBIN > 1:
-    sys.exit("WARTPC_REBIN_X and WARTPC_REBIN > 1 cannot be combined; choose one")
-FX, FY = (2, 1) if REBIN_X else (REBIN, REBIN)       # pixels per fit bin in X, Y
-if REBIN_X:
-    REBIN_LABEL, REBIN_SFX = "rebinX(2): X pixels merged in pairs (2D fit and X sideband fits)", "-rebinX2"
+# Merge adjacent X pixels for both the 2D Gaussian and X sideband fits.
+rebin_x_setting = os.environ.get("WARTPC_REBIN_X", "0").strip().lower()
+if rebin_x_setting in ("1", "on", "yes", "true"):
+    REBIN_X = 2  # Legacy switch enabled pairwise merging.
+elif rebin_x_setting in ("2", "4", "8", "16"):
+    REBIN_X = int(rebin_x_setting)
+else:
+    REBIN_X = 1
+if REBIN_X > 1 and REBIN > 1:
+    sys.exit("X rebinning and 2D rebinning cannot be combined")
+FX, FY = (REBIN_X, 1) if REBIN_X > 1 else (REBIN, REBIN)
+if REBIN_X > 1:
+    REBIN_LABEL = f"rebinX({REBIN_X}): X pixels merged in the 2D fit and X sideband fits"
+    REBIN_SFX = f"-rebinX{REBIN_X}"
 elif REBIN > 1:
     REBIN_LABEL, REBIN_SFX = f"{REBIN}x{REBIN} pixels merged (2D fit only)", f"-rebin{REBIN}"
 else:
@@ -133,7 +138,7 @@ def save_map_plots(tot_map, hit_map, fx=1, fy=1, sfx=""):
     t_sum = float(tot_map.sum())
     frac = 100 * tot_map[by, bx] / t_sum if t_sum else 0
     ext = (-0.5, 255.5, 255.5, -0.5)
-    title_bin = "" if fx == fy == 1 else (", rebinX(2)" if (fx, fy) == (2, 1) else f", rebinned by {fx}")
+    title_bin = "" if fx == fy == 1 else (f", rebinX({fx})" if fy == 1 else f", rebinned by {fx}")
     centres_x, centres_y = cen_x(np.arange(tot_map.shape[1])), cen_y(np.arange(tot_map.shape[0]))
     edges_x = np.arange(tot_map.shape[1] + 1) * fx - 0.5
     edges_y = np.arange(tot_map.shape[0] + 1) * fy - 0.5
@@ -351,15 +356,14 @@ ysig_proj=np.sqrt(xsig**2*np.sin(fig_theta)**2+ysig**2 * np.cos(fig_theta)**2)
 
 tot_x_collapse = np.ascontiguousarray(np.sum(perChipTOT[:,:], axis=0),dtype=np.float64)/1E6
 hit_x_collapse = np.sum(perChipHIT[:,:], axis=0)
-# --- rebinX(2) switch (added): X projection in 128 bins of 2 pixels before the
-# sideband fits; X positions are the pair centres (see x_positions).
-if REBIN_X:
-    tot_x_collapse = np.ascontiguousarray(tot_x_collapse[0::2] + tot_x_collapse[1::2])
-    hit_x_collapse = hit_x_collapse[0::2] + hit_x_collapse[1::2]
+if REBIN_X > 1:
+    tot_x_collapse = tot_x_collapse.reshape(-1, REBIN_X).sum(axis=1)
+    hit_x_collapse = hit_x_collapse.reshape(-1, REBIN_X).sum(axis=1)
 
 def x_positions(n):
-    """Pixel coordinate of each projection bin: 0..255, or 2k+0.5 for 128 bins."""
-    return np.arange(256, dtype=float) if n == 256 else 2.0 * np.arange(n) + 0.5
+    """Return the centres of the projection bins in original pixel coordinates."""
+    width = 256 // n
+    return width * np.arange(n, dtype=float) + (width - 1) / 2
 
 tot_y_collapse = np.ascontiguousarray(np.sum(perChipTOT[:,:], axis=1),dtype=np.float64)/1E6
 hit_y_collapse = np.sum(perChipHIT[:,:], axis=1)
@@ -420,7 +424,7 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
 
     xpos_3sig=[]
 
-    xpos_3sig = x_positions(len(ycomp_3sig))   # (added) 0..255, or pair centres with rebinX(2)
+    xpos_3sig = x_positions(len(ycomp_3sig))
     
     sig3_full=[]
     sig3_full_bins=[]
@@ -501,15 +505,14 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
             latex_info = ROOT.TLatex()
             latex_info.SetNDC()
             latex_info.SetTextSize(0.03)
-            latex_info.DrawLatex(0.55, 0.75, "Spark intervals excluded")
-            latex_info.DrawLatex(0.55, 0.70, f"Total cut is {time_cut:.3f} s")
+            latex_info.DrawLatex(0.55, 0.75, f"High-ToT hits removed: {removed_hits:,}")
 
         latex_ID = ROOT.TLatex()
         latex_ID.SetNDC()
         latex_ID.SetTextSize(0.03)
         latex_ID.DrawLatex(0.15, 0.85, f"ID: {ID}")
-        if len(ycomp_3sig) != 256:   # (added) rebinX(2)
-            latex_ID.DrawLatex(0.15, 0.80, f"RebinX(2): {len(ycomp_3sig)} bins")
+        if len(ycomp_3sig) != 256:
+            latex_ID.DrawLatex(0.15, 0.80, f"RebinX({REBIN_X}): {len(ycomp_3sig)} bins")
 
         data_sig3.Draw("PE SAME")
         dat_fit_sig3.Draw("SAME")
@@ -563,8 +566,7 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
             latex_info2 = ROOT.TLatex()
             latex_info2.SetNDC()
             latex_info2.SetTextSize(0.03)
-            latex_info2.DrawLatex(0.55, 0.75, "Spark intervals excluded")
-            latex_info2.DrawLatex(0.55, 0.70, f"Total cut is {time_cut:.3f} s")
+            latex_info2.DrawLatex(0.55, 0.75, f"High-ToT hits removed: {removed_hits:,}")
 
         line = ROOT.TLine(signal3.GetXaxis().GetXmin(), 0, signal3.GetXaxis().GetXmax(), 0) #y=0 from x=0 to x=100
         line.SetLineColor(11)
@@ -575,8 +577,8 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
         latex_ID.SetNDC()
         latex_ID.SetTextSize(0.03)
         latex_ID.DrawLatex(0.15, 0.85, f"ID: {ID}")
-        if len(ycomp_3sig) != 256:   # (added) rebinX(2)
-            latex_ID.DrawLatex(0.15, 0.80, f"RebinX(2): {len(ycomp_3sig)} bins")
+        if len(ycomp_3sig) != 256:
+            latex_ID.DrawLatex(0.15, 0.80, f"RebinX({REBIN_X}): {len(ycomp_3sig)} bins")
 
         stats_signal = ROOT.TPaveText(0.64, 0.44, 0.89, 0.63, "NDC")
         stats_signal.SetTextSize(0.025)
@@ -647,7 +649,8 @@ try:
             ax.set_ylim(bottom=0)
             ax.set_xlabel(f"{axis_name} Pixel", fontsize=13)
             ax.set_ylabel("ToT (ms)", fontsize=13)
-            ax.set_title(f"{axis_name} projection{' (rebinX(2), 128 bins)' if len(tot_p) != 256 else ''}, "
+            binning = f" (rebinX({REBIN_X}), {len(tot_p)} bins)" if len(tot_p) != 256 else ""
+            ax.set_title(f"{axis_name} projection{binning}, "
                          f"signal to {s_sig} sigma, sideband to {b_sig} sigma", fontsize=13)
             ax.legend(fontsize=9)
             ax.grid(alpha=.2)

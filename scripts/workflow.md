@@ -288,7 +288,7 @@ After a `workflow.sh` run, check these files in this order:
 
 ## rebinX(2) switch: --rebin-x on|off
 
-`workflow.sh` and `optical-analysis.sh` take `--rebin-x on` (default `off`).
+`workflow.sh` takes `--rebin-x 2` and `optical-analysis.sh` takes `--rebin-x on` for pairwise X rebinning. The default is `off` for both.
 It sets `WARTPC_REBIN_X=1` for `blackbox/optical-analysis.py`, which then
 merges neighbouring X pixels in pairs (columns 0+1, 2+3, ...) in two places:
 1. the 2D Gaussian fit uses the 256 (Y) × 128 (X) ToT map. The fit runs in
@@ -304,7 +304,7 @@ With `off`, the analysis is exactly Matt's original (checked on vr22-07: all
 0.02–0.07 and the run's S_O from 0.052 to 0.075.
 
 ```bash
-./workflow.sh <dataset_dir> <output_dir> --run optical --rebin-x on
+./workflow.sh <dataset_dir> <output_dir> --run optical --rebin-x 2
 ./optical-analysis.sh <dataset_dir> <output_dir> --runs vr22-07 --rebin-x on
 ```
 
@@ -348,7 +348,7 @@ Use two different output folders to compare. In each run's
 `optical/<run>/diagnostics/fit_parameters.txt` the last line says which
 rebinning was used; the parameters are always in original pixel units, so the
 two can be compared directly. The 2D fit's starting point is the hottest
-rebinned bin. With `workflow.sh`, set `export WARTPC_REBIN=2` first instead.
+rebinned bin. Use `optical-analysis.sh --rebin 2` for this two-axis fit test.
 
 ## Running only optical or only charge
 
@@ -361,6 +361,19 @@ from whatever is in the results folder, so:
   earlier results.
 
 ## Spark detection
+
+`workflow.sh` enables optical spark removal by default. It fits the same
+dataset before and after the cut, then writes nine PNGs and
+`run_summary.txt` for each optical run under
+`<name>_results/plots/optical_per_run/`. Copy that folder to transfer just
+the plots and summaries. Use `--sparks off` for a single uncut fit.
+With `--no-plot`, the workflow runs only the selected fit and writes its
+text summary.
+
+X rebinning is off by default. Use `--rebin-x 2` to merge pairs, or specify
+`4`, `8` or `16` for the number of adjacent X pixels per bin. Both spark
+passes use the same setting.
+
 
 To run the paired vr22 spark study on Hammer, use the one-command runner from
 the checkout in a compute session:
