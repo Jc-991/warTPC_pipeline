@@ -4,6 +4,7 @@
 import argparse
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+import sys
 
 import numpy as np
 
@@ -32,7 +33,11 @@ def main():
     parser.add_argument("-o", "--output", type=Path, required=True, help="comparison PNG")
     parser.add_argument("--bins-ms", nargs="+", type=bin_width,
                         default=[bin_width(w) for w in ("1", "0.1", "0.05", "0.02", "0.01", "0.005")])
+    parser.add_argument("--cut-histogram", action="store_true",
+                        help="plot the grouped ToT histogram and its cut for one bin width")
     args = parser.parse_args()
+    if args.cut_histogram and len(args.bins_ms) != 1:
+        parser.error("--cut-histogram requires one --bins-ms value")
 
     import h5py
     import matplotlib
@@ -46,6 +51,17 @@ def main():
         parser.error("the input contains no hits")
 
     elapsed = toa - toa.min()
+    if args.cut_histogram:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "blackbox"))
+        from spark_detection import flag_sparks, save_tot_distribution
+
+        _, counts, sums = group_hits(elapsed, tot, args.bins_ms[0])
+        cutoff, flagged = flag_sparks(sums)
+        save_tot_distribution(sums, args.output, flagged, grouped=True)
+        print(f"{toa.size:,} hits, {counts.size:,} occupied time bins, "
+              f"{flagged.sum():,} above grouped ToT cut ({cutoff:.6g})")
+        return
+
     ref_bins, ref_counts, _ = group_hits(elapsed, tot, TICKS_PER_MS)
     burst_start = int(ref_bins[ref_counts.argmax()]) * TICKS_PER_MS
     burst_end = burst_start + TICKS_PER_MS

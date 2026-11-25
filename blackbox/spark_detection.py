@@ -35,8 +35,8 @@ def flag_sparks(tot):
     return cutoff, tot > cutoff if cutoff is not None else np.zeros(0, dtype=bool)
 
 
-def save_tot_distribution(tot, output, removed=None):
-    """Histogram the measured ToT of every original hit."""
+def save_tot_distribution(tot, output, removed=None, *, grouped=False):
+    """Plot individual or time-grouped ToT values with the cut marked."""
     from matplotlib import pyplot as plt
 
     counts, edges = np.histogram(tot, bins=128)
@@ -45,24 +45,28 @@ def save_tot_distribution(tot, output, removed=None):
         mean = float(np.mean(tot))
         rms = float(np.std(tot))
         lower, upper = mean - 5 * rms, mean + 5 * rms
+        unit = "time bins" if grouped else "hits"
         if removed is None:
             ax.stairs(counts, edges, fill=True, color="tab:blue", label="All hits before tagging")
         else:
             removed_counts, _ = np.histogram(tot[removed], bins=edges)
             kept_counts = counts - removed_counts
             ax.stairs(kept_counts, edges, fill=True, color="tab:blue",
-                      label=f"Kept ({int((~removed).sum()):,} hits)")
+                      label=f"Kept ({int((~removed).sum()):,} {unit})")
             ax.stairs(counts, edges, baseline=kept_counts, fill=True, color="tab:red",
-                      label=f"Removed ({int(removed.sum()):,} hits)")
+                      label=f"Removed ({int(removed.sum()):,} {unit})")
         ax.axvline(lower, color="black", linestyle="--", label=f"Mean − 5 RMS ({lower:.1f})")
         ax.axvline(upper, color="black", linestyle=":", label=f"Mean + 5 RMS ({upper:.1f})")
         cutoff = mean + TOT_CUT_RMS * rms
         ax.axvline(cutoff, color="tab:red", linestyle="--", label=f"ToT cut ({cutoff:.1f})")
         left, right = min(edges[0], lower), max(edges[-1], cutoff)
         padding = 0.02 * (right - left)
-        ax.set(xlabel="Hit ToT (stored units)", ylabel="Hits per bin",
-               xlim=(left - padding, right + padding), yscale="log",
-               title="Hit ToT distribution and spark cut")
+        ax.set(
+            xlabel="Summed ToT per occupied time bin (stored units)" if grouped else "Hit ToT (stored units)",
+            ylabel="Occupied time bins per histogram bin" if grouped else "Hits per bin",
+            xlim=(left - padding, right + padding), yscale="log",
+            title="Grouped ToT distribution and spark cut" if grouped else "Hit ToT distribution and spark cut",
+        )
         ax.legend()
         draw_plot_statistics(ax, plot_statistics(tot, edges[0], edges[-1], "ToT"))
         fig.savefig(output, dpi=170)
