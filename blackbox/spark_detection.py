@@ -9,8 +9,7 @@ import numpy as np
 
 TOT_CUT_RMS = 10
 TOA_TICKS_PER_SECOND = 10_000_000_000_000
-# Five ms on the reinterpreted axis is five microseconds of detector time.
-GROUPED_SPARK_WIDTH_TICKS = 50_000_000
+GROUPED_SPARK_WIDTH_TICKS = 5 * (TOA_TICKS_PER_SECOND // 1000)  # 5 ms of detector time
 
 
 def group_tot(elapsed, tot, width):
@@ -191,7 +190,7 @@ def spark_cut(toa, tot, report_path, *, mode=None):
     if grouped:
         lines.extend((
             f"Spark count rule: occupied time bins with summed ToT > mean + {TOT_CUT_RMS} RMS",
-            "Grouping width (s): 0.000005",
+            f"Grouping width (s): {GROUPED_SPARK_WIDTH_TICKS / TOA_TICKS_PER_SECOND:g}",
         ))
         for start, stop in intervals:
             lines.append(f"Candidate since first hit (s): "

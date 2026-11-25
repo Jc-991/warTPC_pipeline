@@ -375,8 +375,8 @@ the selected run gets a fresh directory with a suffix, printed by the workflow.
 ## Spark detection
 
 `workflow.sh` enables grouped optical spark removal by default. It sums ToT
-in occupied 5 µs detector-time windows, equivalent to 5 ms on the study's
-reinterpreted time axis. It flags windows above the grouped mean plus 10 RMS,
+in occupied 5 ms detector-time windows. It flags windows above the grouped
+mean plus 10 RMS,
 removes all hits in those windows, and subtracts their overlap with the run
 from the exposure. The summary counts flagged windows as sparks. It fits the same
 dataset before and after the cut, then writes nine PNGs,
