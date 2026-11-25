@@ -16,7 +16,6 @@ PAIRED_PLOTS = (
     "x_projection_signal.png", "y_projection_signal.png", "combined_integral_distribution.png",
 )
 DIAGNOSTICS = (
-    "tot-vs-time-before-sparks.png",
     "tot-distribution-before-sparks.png",
     "tot-vs-time-spark-removal.png",
 )
@@ -41,7 +40,7 @@ def copy_plot(source, destination, issues):
 
 
 def copy_run_plots(before_plots, after_plots, diagnostics, destination, issues):
-    """Copy the ten per-run figures with explicit before/after filenames."""
+    """Copy the nine per-run figures with explicit before/after filenames."""
     name = "2D_integrated_ToT.png"
     copy_plot(after_plots / name, destination / name, issues)
     for name in DIAGNOSTICS:

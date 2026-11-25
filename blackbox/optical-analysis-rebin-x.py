@@ -376,7 +376,7 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
         if axis == 0:
             latex_ID.DrawLatex(0.15, 0.80, f"RebinX(2): {len(ycomp_3sig)} bins")
 
-        stats_signal = ROOT.TPaveText(0.64, 0.52, 0.89, 0.71, "NDC")
+        stats_signal = ROOT.TPaveText(0.64, 0.44, 0.89, 0.63, "NDC")
         stats_signal.SetTextSize(0.025)
         stats_signal.SetTextAlign(12)
         stats_signal.SetFillColor(ROOT.kWhite)

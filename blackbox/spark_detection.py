@@ -118,11 +118,10 @@ def spark_cut(toa, tot, report_path, *, mode=None):
     report = Path(report_path)
     report.parent.mkdir(parents=True, exist_ok=True)
     if count:
-        if mode == "off":
-            duration = (int(toa[-1]) - int(toa[0])) / 1e13
-        else:
-            seconds = (toa - toa.min()) / 1e13
-            duration = float(seconds.max())
+        first = toa.min()
+        duration = (int(toa.max()) - int(first)) / 1e13
+        if mode != "off":
+            seconds = (toa - first) / 1e13
             bins = (seconds / width).astype(np.intp)
             time_bins = int(bins.max()) + 1
             save_tot_spectrum(seconds, tot, time_bins, width,

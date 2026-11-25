@@ -362,6 +362,23 @@ from whatever is in the results folder, so:
 
 ## Spark detection
 
+To run the paired vr22 spark study on Hammer, use the one-command runner from
+the checkout in a compute session:
+
+```bash
+bash scripts/run-vr22-spark-study.sh
+```
+
+It defaults to `vr22-06` and `vr22-07`. Pass run IDs as separate arguments
+to choose other runs from `vr22-06` through `vr22-13`. It runs the before
+and after fits with the same X binning, creates a fresh results directory,
+and prints the location of the `optical_per_run/<run>/` folders. Each folder
+contains nine PNGs and `run_summary.txt`: the after-cut 2D ToT image, the
+ToT histogram and marked arrival-time spectrum, and before/after pairs of
+the X projection, Y projection, and combined integral distribution. The
+runner removes its temporary files after successful packaging. Copy the
+printed results directory with `scp -r` to transfer both run folders.
+
 Set `WARTPC_SPARK_MODE=detect` before the optical command to report the ToT cut
 and count hits above it while keeping every hit. For a single-run check:
 
