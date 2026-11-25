@@ -375,8 +375,8 @@ the selected run gets a fresh directory with a suffix, printed by the workflow.
 ## Spark detection
 
 `workflow.sh` enables optical spark removal by default. It fits the same
-dataset before and after the cut, then writes nine PNGs and
-`run_summary.txt` for each optical run under
+dataset before and after the cut, then writes nine PNGs,
+`run_summary.txt`, and `run_summary_readable.txt` for each optical run under
 `<name>_results/plots/optical_per_run/`. Copy that folder to transfer just
 the plots and summaries. Use `--sparks off` for a single uncut fit.
 With `--no-plot`, the workflow runs only the selected fit and writes its
@@ -398,7 +398,7 @@ It defaults to `vr22-06` and `vr22-07`. Pass run IDs as separate arguments
 to choose other runs from `vr22-06` through `vr22-13`. It runs the before
 and after fits with the same X binning, creates a fresh results directory,
 and prints the location of the `optical_per_run/<run>/` folders. Each folder
-contains nine PNGs and `run_summary.txt`: the after-cut 2D ToT image, the
+contains both summary files and nine PNGs: the after-cut 2D ToT image, the
 ToT histogram and marked arrival-time spectrum, and before/after pairs of
 the X projection, Y projection, and combined integral distribution. The
 runner removes its temporary files after successful packaging. Copy the
@@ -427,13 +427,15 @@ The workflow and selected-run scripts write `spark_counts.csv` at the
 dataset results root. The table includes every optical run in that folder
 and leaves the count blank if no count was recorded. It is also produced
 when spark removal is off or summary plotting is skipped.
-Each completed optical run writes a tab-separated `run_summary.txt` with the
+Each completed optical run writes a tab-separated `run_summary.txt` with a
+header and one data row for merging runs. `run_summary_readable.txt` displays
+the same fields one per line. Both use seconds for exposure and include the
 original and usable exposures, spark count, iteration count, and optical
 signals before and after exposure normalization. It also includes the run
 conditions, removed exposure as a percentage of the original exposure, and
-the optical RMS as a percentage of the absolute normalized signal. A percentage
-is blank if its denominator is zero or unavailable. With plotting enabled,
-each run's file is also copied into its own `plots/optical_per_run/<run>/` folder.
+the optical RMS as a percentage of the absolute normalized signal. A percentage with a zero or unavailable denominator is blank in the table and
+shown as `N/A` in the readable file. With plotting enabled,
+each run's summaries are also copied into its own `plots/optical_per_run/<run>/` folder.
 
 The per-run canvases show entries, mean, RMS, underflow, and overflow. The
 2D map describes ToT per pixel, the projections describe the plotted signal

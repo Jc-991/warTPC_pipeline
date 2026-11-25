@@ -16,20 +16,19 @@ TEXT_COLUMNS = (
     *((f"V{index}_V", f"V{index}") for index in range(5)),
     ("pressure_mbar", "pressure_mbar"),
     ("methane_fraction", "methane_fraction"),
-    ("exposure_time_ms", "exposure_time"),
+    ("exposure_time_s", "exposure_time"),
     ("v_over_p_kVbar-1", "v_over_p"),
     ("unavailable", "unavailable"),
-    ("original_exposure_ms", "exposure_before_s"),
+    ("original_exposure_s", "exposure_before_s"),
     ("number_of_sparks", "spark_count"),
     ("number_of_sparkAlgo_iterations", "spark_algorithm_iterations"),
-    ("total_spark_exposure_removed_ms", "exposure_excluded_s"),
+    ("total_spark_exposure_removed_s", "exposure_excluded_s"),
     ("percentage_of_removed_exposure", "percentage_of_removed_exposure"),
-    ("exposure_after_spark_removal_ms", "exposure_after_s"),
+    ("exposure_after_spark_removal_s", "exposure_after_s"),
     ("S_O_ms", "S_O_ms"),
     ("S_O^norm_ms_per_s", "S_O_norm_ms_per_s"),
     ("S_O_error_in_percentage", "S_O_error_in_percentage"),
 )
-EXPOSURE_KEYS = {"exposure_time", "exposure_before_s", "exposure_excluded_s", "exposure_after_s"}
 
 
 def number(value):
@@ -80,17 +79,24 @@ def read_optical_values(run_dir, run):
 
 
 def write_text_summary(path, row):
+    labels = [label for label, _ in TEXT_COLUMNS]
+    values = []
+    for _, key in TEXT_COLUMNS:
+        value = row.get(key)
+        values.append(f"{value:.12g}" if isinstance(value, float) else value)
     with path.open("w", newline="") as handle:
-        handle.write("S_O^norm_ms_per_s = S_O_ms / (exposure_after_spark_removal_ms / 1000)\n")
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
-        writer.writerow([label for label, _ in TEXT_COLUMNS])
-        values = []
-        for _, key in TEXT_COLUMNS:
-            value = row.get(key)
-            if key in EXPOSURE_KEYS and value is not None:
-                value *= 1000
-            values.append(f"{value:.12g}" if isinstance(value, float) else value)
+        writer.writerow(labels)
         writer.writerow(values)
+
+    width = max(map(len, labels))
+    readable = path.with_name(f"{path.stem}_readable{path.suffix}")
+    with readable.open("w") as handle:
+        handle.write("S_O^norm_ms_per_s = S_O_ms / exposure_after_spark_removal_s\n\n")
+        for label, value in zip(labels, values):
+            if value is None or value == "":
+                value = "N/A"
+            handle.write(f"{label:<{width}}  {value}\n")
 
 
 def write_optical_summary(run_dir):

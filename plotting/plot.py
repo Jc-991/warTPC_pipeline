@@ -223,9 +223,9 @@ def analyse_runs(src, out, rms_limit, warnings, issues):
         if opt.is_dir() and any(opt.iterdir()):
             dst = out / 'optical_per_run' / run
             dst.mkdir(parents=True, exist_ok=True)
-            run_summary = opt / 'run_summary.txt'
-            if run_summary.is_file():
-                shutil.copy2(run_summary, dst / run_summary.name)
+            for name in ('run_summary.txt', 'run_summary_readable.txt'):
+                if (opt / name).is_file():
+                    shutil.copy2(opt / name, dst / name)
             for rel, name in OPTICAL_PER_RUN.items():
                 if (opt / rel).is_file():
                     shutil.copy2(opt / rel, dst / name)

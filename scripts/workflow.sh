@@ -19,14 +19,14 @@ Usage: $(basename "$0") -i <dataset_dir> -o <output_dir> [--run optical|charge|b
   -i, --input     unzipped dataset folder (with optical/ and/or charge/);
                   use unzip.sh first to unzip an uploaded ZIP
   -o, --output    results go to <output_dir>/<name>_results/ (analysis and plots)
-                  each completed optical run includes its own run_summary.txt
+                  each completed optical run writes a table and a readable summary
   --run WHAT      which analysis to run: optical, charge or both (default: both)
   --runs LIST     comma-separated run folder names (default: all). Selected
                   runs use a fresh results directory if one already exists.
   --kind K        pressure or voltage: marker type in the plots (default: guessed
                   from the dataset name, e.g. pressure-pass-06 or prp*)
   --sparks on|off  optical spark removal (default: on). With plots, run
-                  before/after fits and export nine PNGs plus run_summary.txt
+                  before/after fits and export nine PNGs plus both summaries
                   per run under <name>_results/plots/optical_per_run/
   --rebin-x off|N  merge N adjacent X pixels in the optical fits (2, 4, 8, 16);
                   default: off
