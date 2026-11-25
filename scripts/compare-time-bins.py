@@ -31,7 +31,7 @@ def main():
     parser.add_argument("hdf5", type=Path, help="optical run's output.hdf5")
     parser.add_argument("-o", "--output", type=Path, required=True, help="comparison PNG")
     parser.add_argument("--bins-ms", nargs="+", type=bin_width,
-                        default=[bin_width(w) for w in ("1", "0.5", "0.2", "0.1", "0.05")])
+                        default=[bin_width(w) for w in ("1", "0.1", "0.05", "0.02", "0.01", "0.005")])
     args = parser.parse_args()
 
     import h5py
@@ -53,19 +53,25 @@ def main():
     left = max(0, burst_start - margin)
     right = burst_end + margin
 
+    comparisons = [group_hits(elapsed, tot, width) for width in args.bins_ms]
+    lower = min(summed_tot.min() for _, _, summed_tot in comparisons)
+    upper = max(summed_tot.max() for _, _, summed_tot in comparisons)
+    histogram_edges = np.histogram_bin_edges([lower, upper], bins=100)
+
     fig, axes = plt.subplots(len(args.bins_ms), 2, squeeze=False,
-                             figsize=(12, 2.8 * len(args.bins_ms)), layout="constrained")
+                             figsize=(12, 2.8 * len(args.bins_ms)), sharex="col", layout="constrained")
     fig.suptitle(f"{args.hdf5.parent.name} · {toa.size:,} hits before spark removal")
     print("width_ms,occupied_bins,multi_hit_bins,peak_hits,peak_start_ms")
-    for width, (histogram, timeline) in zip(args.bins_ms, axes):
-        bins, counts, summed_tot = group_hits(elapsed, tot, width)
+    for width, (histogram, timeline), (bins, counts, summed_tot) in zip(
+        args.bins_ms, axes, comparisons
+    ):
         starts = bins * width
         peak = int(counts.argmax())
         width_ms = width / TICKS_PER_MS
         print(f"{width_ms:g},{bins.size},{np.count_nonzero(counts > 1)},"
               f"{counts[peak]},{starts[peak] / TICKS_PER_MS:.10f}")
 
-        histogram.hist(summed_tot, bins=100, log=True)
+        histogram.hist(summed_tot, bins=histogram_edges, log=True)
         histogram.set(title=f"{width_ms:g} ms · {bins.size:,} occupied bins",
                       xlabel="Summed ToT per bin (stored units)", ylabel="Occupied bins")
 
