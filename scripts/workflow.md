@@ -360,6 +360,18 @@ from whatever is in the results folder, so:
   and the plots are remade with both. The step that isn't rerun keeps its
   earlier results.
 
+## Selecting runs with workflow.sh
+
+Pass exact run folder names as a comma-separated list:
+
+```bash
+bash scripts/workflow.sh -i "$dataset" -o "$results" --run optical --runs vr22-06,vr22-07
+```
+
+Use `--run both` for runs present in both input types when the dataset contains
+both optical and charge data. If the standard results directory already exists,
+the selected run gets a fresh directory with a suffix, printed by the workflow.
+
 ## Spark detection
 
 `workflow.sh` enables optical spark removal by default. It fits the same

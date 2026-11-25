@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ./workflow.sh path/to/unzipped/dataset output/path/to/directory
-#               [--run optical|charge|both] [--kind pressure|voltage]
+# ./workflow.sh -i path/to/unzipped/dataset -o output/path/to/directory
+#               [--run optical|charge|both] [--runs LIST] [--kind pressure|voltage]
 #               [--sparks on|off] [--rebin-x off|N] [--no-plot]
 #
 # Analyses an already unzipped dataset. To unzip an uploaded ZIP first:
@@ -13,14 +13,16 @@ BUILD="${WARTPC_BUILD:-$REPO/build}"
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") <dataset_dir> <output_dir> [--run optical|charge|both]
+Usage: $(basename "$0") -i <dataset_dir> -o <output_dir> [--run optical|charge|both] [--runs LIST]
                          [--kind pressure|voltage] [--sparks on|off] [--rebin-x off|N] [--no-plot]
 
-  <dataset_dir>   unzipped dataset folder (with optical/ and/or charge/);
+  -i, --input     unzipped dataset folder (with optical/ and/or charge/);
                   use unzip.sh first to unzip an uploaded ZIP
-  <output_dir>    results go to <output_dir>/<name>_results/ (analysis and plots)
+  -o, --output    results go to <output_dir>/<name>_results/ (analysis and plots)
                   each completed optical run includes its own run_summary.txt
   --run WHAT      which analysis to run: optical, charge or both (default: both)
+  --runs LIST     comma-separated run folder names (default: all). Selected
+                  runs use a fresh results directory if one already exists.
   --kind K        pressure or voltage: marker type in the plots (default: guessed
                   from the dataset name, e.g. pressure-pass-06 or prp*)
   --sparks on|off  optical spark removal (default: on). With plots, run
@@ -30,21 +32,34 @@ Usage: $(basename "$0") <dataset_dir> <output_dir> [--run optical|charge|both]
                   default: off
   --no-plot       skip the final plot export and the before-cut fit
   -h, --help      show this help
+
+The two directories can also be passed as positional arguments.
 EOF
 }
 die() { echo "$*" >&2; exit 1; }
 
 cmdline="$0${*:+ $*}"
-name="" outdir="" do_plot=1 kind="" run_what=both sparks=on rebin_x=off
+name="" outdir="" do_plot=1 kind="" run_what=both sparks=on rebin_x=off selection=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
+    -i|--input)
+      [[ $# -ge 2 && -n "$2" && "$2" != -* ]] || die "$1 needs a dataset directory"
+      [[ -z "$name" ]] || die "dataset directory already specified"
+      name="$2"; shift 2 ;;
+    -o|--output)
+      [[ $# -ge 2 && -n "$2" && "$2" != -* ]] || die "$1 needs an output directory"
+      [[ -z "$outdir" ]] || die "output directory already specified"
+      outdir="$2"; shift 2 ;;
     --plot) do_plot=1; shift ;;      # default; kept for older commands
     --no-plot) do_plot=0; shift ;;
     --run)
       [[ $# -ge 2 && ( "$2" == optical || "$2" == charge || "$2" == both ) ]] \
         || die "--run must be optical, charge or both"
       run_what="$2"; shift 2 ;;
+    --runs)
+      [[ $# -ge 2 && "$2" =~ ^[^,]+(,[^,]+)*$ ]] || die "--runs needs comma-separated run folder names"
+      selection="$2"; shift 2 ;;
     --kind)
       [[ $# -ge 2 && ( "$2" == pressure || "$2" == voltage ) ]] || die "--kind must be pressure or voltage"
       kind="$2"; shift 2 ;;
@@ -88,6 +103,19 @@ case "$run_what" in
   charge)  steps=(charge) ;;
   both)    steps=(optical charge) ;;
 esac
+if [[ -n "$selection" ]]; then
+  IFS=, read -r -a selected_runs <<< "$selection"
+  for run in "${selected_runs[@]}"; do
+    [[ "$run" != */* && "$run" != .* && "$run" != -* && "$run" != results ]] || die "invalid run folder name: $run"
+    found=0
+    for step in "${steps[@]}"; do
+      [[ -d "$dataset/$step" ]] || continue
+      [[ -d "$dataset/$step/$run" ]] || die "run '$run' not found in $step input for $stem"
+      found=1
+    done
+    [[ $found -eq 1 ]] || die "run '$run' not found in $run_what input for $stem"
+  done
+fi
 for tool in "${steps[@]}"; do
   [[ -x "$BUILD/$tool" ]] || die "$BUILD/$tool not found; build first: cmake -S $REPO -B $REPO/build && cmake --build $REPO/build"
 done
@@ -97,6 +125,12 @@ done
 mkdir -p "$outdir" || die "cannot create $outdir"
 outdir=$(cd "$outdir" && pwd)
 results="$outdir/${stem}_results"
+if [[ -n "$selection" ]]; then
+  # Blackbox processes every run folder in its output directory.
+  if ! mkdir -- "$results" 2>/dev/null; then
+    results=$(mktemp -d "$outdir/${stem}_results.XXXXXX") || die "cannot create selected-run results"
+  fi
+fi
 
 # From here on, everything printed also goes to <results>/logs/workflow_*.log.
 mkdir -p "$results/logs" || die "cannot create $results/logs"
@@ -108,6 +142,7 @@ echo "# workflow started $(date '+%Y-%m-%d %H:%M:%S') on $(hostname)"
 echo "# command: $cmdline"
 echo "# dataset: $dataset"
 echo "# run:     ${steps[*]}"
+echo "# selection: ${selection:-all}"
 echo "# sparks:  $sparks (optical)"
 echo "# rebin-x: $rebin_x (optical)"
 echo "# log:     $log"
@@ -118,11 +153,25 @@ echo "Dataset: $dataset"
 echo "Results: $results"
 status=0
 spark_work=""
-trap 'if [[ -n "$spark_work" ]]; then rm -rf -- "$spark_work"; fi' EXIT
+input_view=""
+trap 'if [[ -n "$spark_work" ]]; then rm -rf -- "$spark_work"; fi
+      if [[ -n "$input_view" ]]; then rm -rf -- "$input_view"; fi' EXIT
+input="$dataset"
+if [[ -n "$selection" ]]; then
+  input_view=$(mktemp -d "${TMPDIR:-/tmp}/wartpc-input.XXXXXX") || die "cannot stage run selection"
+  for step in "${steps[@]}"; do
+    for run in "${selected_runs[@]}"; do
+      [[ -d "$dataset/$step/$run" ]] || continue
+      mkdir -p -- "$input_view/$step" || die "cannot create selected $step input"
+      ln -sfn -- "$dataset/$step/$run" "$input_view/$step/$run" || die "cannot stage $run"
+    done
+  done
+  input="$input_view"
+fi
 export WARTPC_REBIN=1 WARTPC_REBIN_X="$rebin_x"
 for step in "${steps[@]}"; do
   echo; echo "=== $step ==="
-  if [[ ! -d "$dataset/$step" ]]; then
+  if [[ ! -d "$input/$step" ]]; then
     # Asked for explicitly: a missing folder is an error. With "both", a
     # dataset that only has one kind of data is fine.
     if [[ "$run_what" == both ]]; then
@@ -139,16 +188,16 @@ for step in "${steps[@]}"; do
       if [[ $do_plot -eq 1 ]]; then
         spark_work=$(mktemp -d "$results/.spark-work.XXXXXX") || die "cannot stage the before-cut optical fit"
         echo "=== optical before spark removal ==="
-        WARTPC_SPARK_MODE=off "$BUILD/optical" -i "$dataset" -o "$spark_work/before" \
+        WARTPC_SPARK_MODE=off "$BUILD/optical" -i "$input" -o "$spark_work/before" \
           || { status=1; echo "Before-cut optical analysis failed"; }
         echo "=== optical after spark removal ==="
       fi
     fi
-    WARTPC_SPARK_MODE="$spark_mode" "$BUILD/optical" -i "$dataset" -o "$results" \
+    WARTPC_SPARK_MODE="$spark_mode" "$BUILD/optical" -i "$input" -o "$results" \
       || { status=1; echo "optical: some runs failed (see $results/optical_status.txt)"; }
     bash "$REPO/scripts/write-spark-counts.sh" "$results" || status=1
   else
-    "$BUILD/$step" -i "$dataset" -o "$results" \
+    "$BUILD/$step" -i "$input" -o "$results" \
       || { status=1; echo "$step: some runs failed (see $results/${step}_status.txt)"; }
   fi
 done
@@ -168,7 +217,7 @@ fi
 
 if [[ -n "$spark_work" ]]; then
   optical_runs=()
-  for run_dir in "$dataset"/optical/*/; do
+  for run_dir in "$input"/optical/*/; do
     [[ -d "$run_dir" ]] || continue
     run=$(basename -- "$run_dir")
     [[ "$run" != results ]] && optical_runs+=("$run")
