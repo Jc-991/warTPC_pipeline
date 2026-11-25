@@ -378,7 +378,10 @@ the selected run gets a fresh directory with a suffix, printed by the workflow.
 in occupied 5 ms detector-time windows. It flags windows above the grouped
 mean plus 10 RMS,
 removes all hits in those windows, and subtracts their overlap with the run
-from the exposure. The summary counts flagged windows as sparks. It fits the same
+from the exposure. As in Matt’s original analysis, exposure is the last stored
+ToA minus the first, divided by 1e13 to give seconds. The first stored hit is
+time zero for the spark plots and grouping. The summary counts flagged windows
+as sparks. The workflow fits the same
 dataset before and after the cut, then writes nine PNGs,
 `run_summary.txt`, and `run_summary_readable.txt` for each optical run under
 `<name>_results/plots/optical_per_run/`. Copy that folder to transfer just

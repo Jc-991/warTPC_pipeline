@@ -12,6 +12,11 @@ TOA_TICKS_PER_SECOND = 10_000_000_000_000
 GROUPED_SPARK_WIDTH_TICKS = 5 * (TOA_TICKS_PER_SECOND // 1000)  # 5 ms of detector time
 
 
+def elapsed_toa(toa):
+    """Return signed ticks relative to the first stored hit."""
+    return toa.astype(np.int64) - np.int64(toa[0])
+
+
 def group_tot(elapsed, tot, width):
     bins, inverse, counts = np.unique(elapsed // width, return_inverse=True, return_counts=True)
     return bins, inverse, counts, np.bincount(inverse, weights=tot)
@@ -81,12 +86,14 @@ def save_tot_distribution(tot, output, removed=None, *, grouped=False):
         plt.close(fig)
 
 
-def save_tot_spectrum(seconds, tot, time_bins, width, output, removed=None):
+def save_tot_spectrum(seconds, tot, width, output, removed=None):
     """Plot the unfiltered ToT distribution as a function of run time."""
     from matplotlib import pyplot as plt
     from matplotlib.colors import LogNorm
 
-    edges = np.arange(time_bins + 1) * width
+    lower = min(0, int(np.floor(seconds.min() / width)))
+    upper = max(0, int(np.floor(seconds.max() / width))) + 1
+    edges = np.arange(lower, upper + 1) * width
     counts, _, tot_edges = np.histogram2d(seconds, tot, bins=(edges, 128))
     fig, ax = plt.subplots(figsize=(12, 4), layout="constrained")
     try:
@@ -96,7 +103,7 @@ def save_tot_spectrum(seconds, tot, time_bins, width, output, removed=None):
             norm=LogNorm(vmin=1, vmax=max(2, counts.max())),
         )
         fig.colorbar(image, ax=ax, label="Hits per bin")
-        ax.set(xlabel="Time since first hit (s)", ylabel="Hit ToT (stored units)",
+        ax.set(xlabel="Time relative to first stored hit (s)", ylabel="Hit ToT (stored units)",
                title="ToT versus arrival time before spark tagging")
         if removed is not None:
             ax.scatter(seconds[removed], tot[removed], s=24, facecolors="none",
@@ -136,26 +143,28 @@ def spark_cut(toa, tot, report_path, *, mode=None):
     report = Path(report_path)
     report.parent.mkdir(parents=True, exist_ok=True)
     if count:
-        first = toa.min()
-        span = int(toa.max()) - int(first)
+        span = int(toa[-1]) - int(toa[0])
+        if span < 0:
+            raise ValueError("Last stored ToA precedes first stored ToA; invalid exposure")
         duration = span / TOA_TICKS_PER_SECOND
         if mode != "off":
-            elapsed = toa - first
+            elapsed = elapsed_toa(toa)
             seconds = elapsed / TOA_TICKS_PER_SECOND
-            time_bins = int(duration / width) + 1
-            save_tot_spectrum(seconds, tot, time_bins, width,
+            save_tot_spectrum(seconds, tot, width,
                               report.with_name("tot-vs-time-before-sparks.png"))
             if grouped:
                 bins, inverse, _, values = group_tot(elapsed, tot, GROUPED_SPARK_WIDTH_TICKS)
                 cutoff, flagged = flag_sparks(values)
                 intervals = [
                     (int(bin_id) * GROUPED_SPARK_WIDTH_TICKS,
-                     min((int(bin_id) + 1) * GROUPED_SPARK_WIDTH_TICKS, span))
+                     (int(bin_id) + 1) * GROUPED_SPARK_WIDTH_TICKS)
                     for bin_id in bins[flagged]
                 ]
                 if mode == "remove" and intervals:
                     keep = ~flagged[inverse]
-                    excluded = sum(stop - start for start, stop in intervals) / TOA_TICKS_PER_SECOND
+                    excluded_ticks = sum(max(0, min(stop, span) - max(0, start))
+                                         for start, stop in intervals)
+                    excluded = excluded_ticks / TOA_TICKS_PER_SECOND
             else:
                 cutoff, flagged = flag_sparks(values)
                 if mode == "remove" and flagged.any():
@@ -209,7 +218,7 @@ def spark_cut(toa, tot, report_path, *, mode=None):
         removed_mask = None
         if mode == "remove":
             removed_mask = ~keep if keep is not None else np.zeros(count, dtype=bool)
-            save_tot_spectrum(seconds, tot, time_bins, width,
+            save_tot_spectrum(seconds, tot, width,
                               report.with_name("tot-vs-time-spark-removal.png"),
                               removed=removed_mask)
         histogram_mask = flagged if mode == "remove" else None

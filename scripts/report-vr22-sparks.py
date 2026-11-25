@@ -106,8 +106,9 @@ def main():
                 issues.append("candidate count differs from interval list")
             if report["Removal applied"] == "yes":
                 for index, (start, stop) in enumerate(intervals, 1):
+                    overlap = max(0, min(float(stop), before) - max(0, float(start)))
                     windows.append(dict(run=run, interval=index, start_s=start, stop_s=stop,
-                                        excluded_exposure_s=f"{float(stop) - float(start):.9g}"))
+                                        excluded_exposure_s=f"{overlap:.9g}"))
         except (OSError, KeyError, ValueError) as error:
             issues.append(f"spark report: {error}")
         try:

@@ -9,7 +9,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "blackbox"))
-from spark_detection import flag_sparks, group_tot, save_tot_distribution
+from spark_detection import elapsed_toa, flag_sparks, group_tot, save_tot_distribution
 
 
 TICKS_PER_MS = 10_000_000_000
@@ -53,7 +53,7 @@ def main():
     if toa.size == 0:
         parser.error("the input contains no hits")
 
-    elapsed = toa - toa.min()
+    elapsed = elapsed_toa(toa)
     if args.cut_histogram:
         _, counts, sums = group_hits(elapsed, tot, args.bins_ms[0])
         cutoff, flagged = flag_sparks(sums)
@@ -66,7 +66,7 @@ def main():
     burst_start = int(ref_bins[ref_counts.argmax()]) * TICKS_PER_MS
     burst_end = burst_start + TICKS_PER_MS
     margin = 2 * TICKS_PER_MS
-    left = max(0, burst_start - margin)
+    left = max(min(0, int(elapsed.min())), burst_start - margin)
     right = burst_end + margin
 
     comparisons = [group_hits(elapsed, tot, width) for width in args.bins_ms]
@@ -97,7 +97,7 @@ def main():
         timeline.axvspan(burst_start / TICKS_PER_MS, burst_end / TICKS_PER_MS,
                          color="tab:orange", alpha=0.18)
         timeline.set(xlim=(left / TICKS_PER_MS, right / TICKS_PER_MS),
-                     xlabel="Time since first hit (ms)", ylabel="Hits per bin",
+                     xlabel="Time relative to first stored hit (ms)", ylabel="Hits per bin",
                      title="Around the busiest 1 ms interval")
         timeline.ticklabel_format(axis="x", style="plain", useOffset=False)
 
