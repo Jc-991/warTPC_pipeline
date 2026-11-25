@@ -224,13 +224,32 @@ if [[ -n "$spark_work" ]]; then
     [[ "$run" != results ]] && optical_runs+=("$run")
   done
   if [[ $plot_ok -eq 1 && ${#optical_runs[@]} -gt 0 ]] &&
-    "$BUILD/plot" -i "$spark_work/before" -o "$spark_work/before/plots" --dataset "$stem" ${kind:+--kind "$kind"} &&
+    "$BUILD/plot" -i "$spark_work/before" -o "$spark_work/before/plots" --dataset "$stem" ${kind:+--kind "$kind"}; then
+    report_status=0
     "${WARTPC_PYTHON:-python3}" "$REPO/scripts/report-vr22-sparks.py" \
-      "$spark_work/before" "$results" "$spark_work/report" --runs "${optical_runs[@]}"; then
+      "$spark_work/before" "$results" "$spark_work/report" --runs "${optical_runs[@]}" \
+      || report_status=$?
     export_dir="$results/plots/optical_per_run"
-    rm -rf -- "$export_dir" && mv -- "$spark_work/report/optical_per_run" "$export_dir" \
-      || die "cannot publish the paired optical plots"
-    echo "Optical exports: $export_dir"
+    paired="$spark_work/report/optical_per_run"
+    if [[ $report_status -eq 0 ]]; then
+      rm -rf -- "$export_dir" && mv -- "$paired" "$export_dir" \
+        || die "cannot publish the paired optical plots"
+      echo "Optical exports: $export_dir"
+    else
+      if [[ -f "$spark_work/report/run_summary.csv" ]]; then
+        for run in "${optical_runs[@]}"; do
+          [[ -d "$export_dir/$run" ]] || continue
+          for plot in "$paired/$run/"*_before.png "$paired/$run/"*_after.png; do
+            [[ -f "$plot" ]] || continue
+            cp -- "$plot" "$export_dir/$run/" || die "cannot publish $plot"
+          done
+        done
+        echo "Optical exports (available plots): $export_dir"
+      fi
+      status=1
+      echo "Paired optical export incomplete. Work files: $spark_work"
+      spark_work=""
+    fi
   else
     status=1
     echo "Paired optical export failed. Work files: $spark_work"

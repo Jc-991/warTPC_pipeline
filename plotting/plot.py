@@ -43,7 +43,10 @@ OPTICAL_FAILURE_NOTES = ('diagnostics/no_hits.txt', 'diagnostics/fit_failed.txt'
 
 YLABEL = {'optical': r'$S_O^{\mathrm{norm}}$ (ms s$^{-1}$)',
           'v50': r'$V_{50}$ peak estimate (mV)',
-          'ratio': r'$S_O^{\mathrm{norm}}/V_{50}$ (ms s$^{-1}$ mV$^{-1}$)'}
+          'ratio': r'$S_O^{\mathrm{norm}}/V_{50}$ (ms s$^{-1}$ mV$^{-1}$)',
+          'number_of_sparks': 'Number of flagged spark windows',
+          'fraction_of_removed_exposure': 'Exposure removed (absolute fraction, 1 = 100%)'}
+SPARK_METRICS = ('number_of_sparks', 'fraction_of_removed_exposure')
 VP_LABEL = r'$V_{43+21}/P$ (kV bar$^{-1}$)'
 # PLOT_GUIDE: hollow squares for pressure runs, solid circles for voltage runs.
 MARKER = {'pressure': ('s', False), 'voltage': ('o', True), 'unknown': ('D', True)}
@@ -179,6 +182,33 @@ def v50_analysis(path, run, outdir):
             'v50_outside_0_6000': outside, 'v50_flags': '; '.join(flags)}
 
 
+def read_spark_summary(path):
+    with path.open(newline='') as handle:
+        return next(csv.DictReader(handle, delimiter='\t'))
+
+
+def spark_values(summary):
+    fraction = num(summary.get('fraction_of_removed_exposure'))
+    if fraction is None:
+        percent = num(summary.get('percentage_of_removed_exposure'))
+        fraction = None if percent is None else percent / 100
+    return dict(number_of_sparks=num(summary.get('number_of_sparks')),
+                fraction_of_removed_exposure=fraction)
+
+
+def exported_spark_rows(src, dataset, kind, excluded):
+    rows = []
+    for path in sorted((src / 'optical_per_run').glob('*/run_summary.txt'),
+                       key=lambda path: natural_key(path.parent.name)):
+        summary = read_spark_summary(path)
+        run = summary['runID']
+        if run not in excluded:
+            rows.append(dict(run=run, dataset=dataset, kind=kind or infer_kind(dataset, [run]),
+                             v_over_p=num(summary.get('v_over_p_kVbar-1')),
+                             **spark_values(summary)))
+    return rows
+
+
 def analyse_runs(src, out, rms_limit, warnings, issues):
     runs = sorted({p.name for sub in ('optical', 'charge') if (src / sub).is_dir()
                    for p in (src / sub).iterdir() if p.is_dir() and p.name != 'results'},
@@ -201,6 +231,15 @@ def analyse_runs(src, out, rms_limit, warnings, issues):
             warnings.append(f"{run}: settings ID is {r['settings_id']}; results kept under folder name {run}")
 
         # Optical: Blackbox integral.csv (ID, P, V0-V4, purity, mean, rms, %, x, y, time, cut, total)
+        spark_report = opt / 'diagnostics' / 'spark_status.txt'
+        spark_summary = opt / 'run_summary.txt'
+        if spark_report.is_file() and spark_summary.is_file():
+            mode = spark_report.read_text().splitlines()[:1]
+            if mode in (['Mode: remove'], ['Mode: detect']):
+                try:
+                    r.update(spark_values(read_spark_summary(spark_summary)))
+                except (OSError, StopIteration, csv.Error) as error:
+                    issues.append(f'{run}: spark summary: {error}')
         oflags = []
         ic = opt / 'integral.csv'
         if ic.is_file():
@@ -266,6 +305,8 @@ def analyse_runs(src, out, rms_limit, warnings, issues):
 
 # ---------------------------------------------------------------- plotting
 def flagged(r, metric):
+    if metric in SPARK_METRICS:
+        return False
     if metric == 'optical':
         return bool(r.get('optical_flags'))
     if metric == 'v50':
@@ -322,13 +363,17 @@ def points(rows, metric, xof, scale):
     return out, keep
 
 
-def summary_plots(rows, dataset, kind, folder, warnings):
+def summary_plots(rows, dataset, kind, folder, warnings, metrics=None):
     folder.mkdir(parents=True, exist_ok=True)
     names = [r['run'] for r in rows]
     index = {n: i for i, n in enumerate(names)}
-    for metric in ('optical', 'v50', 'ratio'):
+    if metrics is None:
+        metrics = ('optical', 'v50', 'ratio', *SPARK_METRICS)
+    for metric in metrics:
+        if metric in SPARK_METRICS and not any(r.get(metric) is not None for r in rows):
+            continue
         for mode in ('streaming', 'physics'):
-            for scale in (('linear',) if metric == 'ratio' else ('linear', 'log')):
+            for scale in (('linear',) if metric in ('ratio', *SPARK_METRICS) else ('linear', 'log')):
                 xof = (lambda r: index[r['run']]) if mode == 'streaming' else (lambda r: r.get('v_over_p'))
                 pts, used = points(rows, metric, xof, scale)
                 fig, ax = plt.subplots(figsize=(max(8, len(rows) * .48), 5.5) if mode == 'streaming' else (8, 5.5))
@@ -355,7 +400,7 @@ def load_results(path, dataset=None):
     with path.open(newline='') as f:
         for row in csv.DictReader(f):
             r = {k: num(row.get(k)) for k in ('v_over_p', 'optical', 'optical_err', 'v50',
-                                              'v50_err', 'ratio', 'ratio_err')}
+                                              'v50_err', 'ratio', 'ratio_err', *SPARK_METRICS)}
             r['run'] = row.get('run', '')
             r['dataset'] = dataset or row.get('dataset', '')
             r['kind'] = row.get('kind') or infer_kind(r['dataset'], [r['run']])
@@ -366,12 +411,17 @@ def load_results(path, dataset=None):
     return rows
 
 
-def comparison_plots(rows, folder, paper, warnings, notes):
+def comparison_plots(rows, folder, paper, warnings, notes, metrics=None):
     folder.mkdir(parents=True, exist_ok=True)
     datasets = sorted({r['dataset'] for r in rows}, key=natural_key)
     color = {d: COLORS[i % len(COLORS)] for i, d in enumerate(datasets)}
     kind = {r['dataset']: r['kind'] for r in rows}
-    for metric, scale in (('optical', 'log'), ('v50', 'log'), ('ratio', 'linear')):
+    if metrics is None:
+        metrics = ('optical', 'v50', 'ratio', *SPARK_METRICS)
+    for metric in metrics:
+        if metric in SPARK_METRICS and not any(r.get(metric) is not None for r in rows):
+            continue
+        scale = 'log' if metric in ('optical', 'v50') else 'linear'
         fig, ax = plt.subplots(figsize=(9, 6))
         allpts, used_all, entries = [], [], []
         for d in datasets:
@@ -389,7 +439,10 @@ def comparison_plots(rows, folder, paper, warnings, notes):
         ax.set_ylabel(YLABEL[metric])
         legend(ax, entries, any(p[3] for p in allpts))
         fig.tight_layout()
-        fig.savefig(folder / f'{metric}_physics_comparison.png', dpi=150)
+        if metric in SPARK_METRICS and len(entries) == 1:
+            ax.set_title('One dataset with spark measurements')
+        filename = f'{metric}_overlay.png' if metric in SPARK_METRICS else f'{metric}_physics_comparison.png'
+        fig.savefig(folder / filename, dpi=150)
         plt.close(fig)
 
     if paper is None:
@@ -440,7 +493,7 @@ def comparison_plots(rows, folder, paper, warnings, notes):
 # ---------------------------------------------------------------- tables / notes
 RESULT_FIELDS = ['dataset', 'kind', 'run', 'v_over_p', 'optical', 'optical_err', 'optical_rms_percent',
                  'optical_flags', 'v50', 'v50_err', 'v50_entries', 'v50_nonfinite', 'v50_outside_0_6000',
-                 'v50_flags', 'ratio', 'ratio_err', 'excluded']
+                 'v50_flags', 'ratio', 'ratio_err', *SPARK_METRICS, 'excluded']
 CONDITION_FIELDS = ['run', 'settings_id', 'id_mismatch', 'V0', 'V1', 'V2', 'V3', 'V4', 'pressure_mbar',
                     'methane_fraction', 'exposure_time', 'v_over_p', 'unavailable']
 
@@ -520,9 +573,22 @@ def main():
     ap.add_argument('--paper-overlay', type=Path, default=REFERENCE / 'figure26_reference.png', help='calibrated 2750x2000 Fig. 26 image')
     ap.add_argument('--no-paper', action='store_true', help='skip the paper overlay')
     ap.add_argument('--rms-flag-percent', type=float, default=10.0, help='flag optical results with RMS above this %% of S_O (default 10)')
+    ap.add_argument('--spark-only', action='store_true',
+                    help='generate spark plots from an exported plots folder containing optical_per_run/')
     a = ap.parse_args()
 
     src, out = a.input.expanduser().resolve(), a.output.expanduser().resolve()
+    if a.spark_only:
+        dataset = a.dataset or src.name
+        excluded = {run.strip() for run in a.exclude.split(',') if run.strip()}
+        rows = exported_spark_rows(src, dataset, a.kind, excluded)
+        if not rows:
+            ap.error(f'{src} has no exported run summaries')
+        summary_plots(rows, dataset, rows[0]['kind'], out / 'summary_plots', [], metrics=SPARK_METRICS)
+        comparison_rows = [r for directory in a.compare for r in load_results(directory / 'results.csv')
+                           if r['dataset'] != dataset and r['run'] not in excluded]
+        comparison_plots(rows + comparison_rows, out / 'comparisons', None, [], [], metrics=SPARK_METRICS)
+        return 0
     if not (src / 'optical').is_dir() and not (src / 'charge').is_dir():
         ap.error(f'{src} has neither optical/ nor charge/')
     if out == src:

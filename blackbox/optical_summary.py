@@ -23,11 +23,11 @@ TEXT_COLUMNS = (
     ("number_of_sparks", "spark_count"),
     ("number_of_sparkAlgo_iterations", "spark_algorithm_iterations"),
     ("total_spark_exposure_removed_s", "exposure_excluded_s"),
-    ("percentage_of_removed_exposure", "percentage_of_removed_exposure"),
+    ("fraction_of_removed_exposure", "fraction_of_removed_exposure"),
     ("exposure_after_spark_removal_s", "exposure_after_s"),
     ("S_O_ms", "S_O_ms"),
     ("S_O^norm_ms_per_s", "S_O_norm_ms_per_s"),
-    ("S_O_error_in_percentage", "S_O_error_in_percentage"),
+    ("S_O_error_fraction", "S_O_error_fraction"),
 )
 
 
@@ -39,8 +39,8 @@ def number(value):
     return result if math.isfinite(result) else None
 
 
-def percentage(part, whole):
-    return 100 * part / abs(whole) if part is not None and whole else None
+def absolute_fraction(part, whole):
+    return abs(part / whole) if part is not None and whole else None
 
 
 def read_optical_values(run_dir, run):
@@ -49,12 +49,16 @@ def read_optical_values(run_dir, run):
         values = next(csv.reader(handle))
     signal, error = number(values[8]), number(values[9])
     original, excluded, usable = map(number, values[13:16])
+    removed_fraction = absolute_fraction(excluded, original)
+    error_fraction = absolute_fraction(error, signal)
     result = dict(
         exposure_before_s=original, exposure_after_s=usable, exposure_excluded_s=excluded,
         exposure_time=usable, S_O_norm_ms_per_s=signal, S_O_norm_rms_ms_per_s=error,
         S_O_ms=signal * usable if signal is not None and usable is not None else None,
-        percentage_of_removed_exposure=percentage(excluded, original),
-        S_O_error_in_percentage=percentage(error, signal),
+        fraction_of_removed_exposure=removed_fraction,
+        S_O_error_fraction=error_fraction,
+        percentage_of_removed_exposure=None if removed_fraction is None else 100 * removed_fraction,
+        S_O_error_in_percentage=None if error_fraction is None else 100 * error_fraction,
     )
     try:
         with (run_dir / "settings.csv").open(newline="") as handle:
@@ -92,7 +96,8 @@ def write_text_summary(path, row):
     width = max(map(len, labels))
     readable = path.with_name(f"{path.stem}_readable{path.suffix}")
     with readable.open("w") as handle:
-        handle.write("S_O^norm_ms_per_s = S_O_ms / exposure_after_spark_removal_s\n\n")
+        handle.write("S_O^norm_ms_per_s = S_O_ms / exposure_after_spark_removal_s\n")
+        handle.write("Absolute fractions: 1 = 100%.\n\n")
         for label, value in zip(labels, values):
             if value is None or value == "":
                 value = "N/A"

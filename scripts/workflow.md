@@ -439,8 +439,9 @@ header and one data row for merging runs. `run_summary_readable.txt` displays
 the same fields one per line. Both use seconds for exposure and include the
 original and usable exposures, spark count, iteration count, and optical
 signals before and after exposure normalization. It also includes the run
-conditions, removed exposure as a percentage of the original exposure, and
-the optical RMS as a percentage of the absolute normalized signal. A percentage with a zero or unavailable denominator is blank in the table and
+conditions, the fraction of original exposure removed, and the optical RMS
+divided by the magnitude of the normalized signal. Both ratios are absolute
+decimal fractions. A fraction with a zero or unavailable denominator is blank in the table and
 shown as `N/A` in the readable file. With plotting enabled,
 each run's summaries are also copied into its own `plots/optical_per_run/<run>/` folder.
 
@@ -454,6 +455,14 @@ unchanged because no time windows are excluded, and the HDF5 input stays
 intact. To generate the marked-up plots from a saved HDF5 without rerunning
 the optical fit, use
 `python3 blackbox/spark_detection.py --removal-plots <plot_dir> <run>/output.hdf5`.
+
+## Spark observables
+
+The plotting stage writes streaming and physics plots for the number of
+flagged windows and the absolute fraction of exposure removed (1 = 100%).
+Streaming plots use run order. Physics plots use V/P. The comparison overlays
+use V/P and include each dataset that has spark measurements. Historical data
+without spark measurements does not contribute a series.
 
 ## Re-running
 
