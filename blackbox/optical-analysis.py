@@ -18,7 +18,8 @@ os.chdir(moddir)
 
 import h5py
 import numpy as np
-from spark_detection import spark_cut, write_optical_summary
+from optical_summary import write_optical_summary
+from spark_detection import draw_plot_statistics, plot_statistics, spark_cut
 
 import ROOT
 from ROOT import TLatex
@@ -400,6 +401,7 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
             plt.axhline(signal_high)
             plt.axhline(sideband_high)
         plt.contour(np.arange(0,256,1), np.arange(0,256,1), twoD_Gaussian((yFit,xFit), *popt).reshape(256,256), 3, colors='w')
+        draw_plot_statistics(plt.gca(), plot_statistics(perChipTOT, quantity="ToT per pixel"))
         plt.savefig(folder+"/ToT-image.png")
         plt.close()
 
@@ -541,7 +543,11 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
         signal3.SetMarkerStyle(8)
         signal3.SetMarkerSize(1.3)
         signal3.SetMarkerColor(2)
-        signal3.GetYaxis().SetRangeUser(1.1*min(sig3_full),1.1*max(sig3_full));
+        # Pad outward even if all the residuals have the same sign.
+        minimum, maximum = min(sig3_full), max(sig3_full)
+        margin = 0.1 * max(abs(minimum), abs(maximum)) or 1.0
+        lower, upper = minimum - margin, maximum + margin
+        signal3.GetYaxis().SetRangeUser(lower, upper)
         signal3.Draw("APE")
 
         latex_fit2 = ROOT.TLatex()
@@ -571,6 +577,14 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
         latex_ID.DrawLatex(0.15, 0.85, f"ID: {ID}")
         if len(ycomp_3sig) != 256:   # (added) rebinX(2)
             latex_ID.DrawLatex(0.15, 0.80, f"RebinX(2): {len(ycomp_3sig)} bins")
+
+        stats_signal = ROOT.TPaveText(0.64, 0.52, 0.89, 0.71, "NDC")
+        stats_signal.SetTextSize(0.025)
+        stats_signal.SetTextAlign(12)
+        stats_signal.SetFillColor(ROOT.kWhite)
+        for statistic in plot_statistics(sig3_full, lower, upper, "residual ToT"):
+            stats_signal.AddText(statistic)
+        stats_signal.Draw()
 
         canvas_signal3.SaveAs(folder+"/"+str(signal_sig)+"to"+str(sideband_sig)+"_signal.png")
         if SAVE_SIGNAL_PLOTS:
@@ -1031,7 +1045,7 @@ sig_out = pd.DataFrame([[ID],[pres],[FC],[E1],[E2],[E3],[E4],[purity],[mean_tot]
 inspect = pd.DataFrame([[f"{ID} Mean = {mean_round} RMS = {rms_round} ({round(percent,1)}%). Analysis performed at {now}"]])
 
 sig_out.T.to_csv(f"{path}/{directory}/integral.csv", mode="w", index=False, header=False)
-write_optical_summary(f"{path}/{directory}", ID, mean_tot, time, time_cut)
+write_optical_summary(f"{path}/{directory}")
 inspect.T.to_csv(f"{path}/{directory}/integral-inspect.csv", mode="w", index=False, header=False)
 
 sig_out.T.to_csv(f"{path}/results/signals.csv", mode="a", index=False, header=False)

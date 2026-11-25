@@ -387,8 +387,15 @@ and leaves the count blank if no count was recorded. It is also produced
 when spark removal is off or summary plotting is skipped.
 Each completed optical run writes a tab-separated `run_summary.txt` with the
 original and usable exposures, spark count, iteration count, and optical
-signals before and after exposure normalization. With plotting enabled, each
-run's file is also copied into its own `plots/optical_per_run/<run>/` folder.
+signals before and after exposure normalization. It also includes the run
+conditions, removed exposure as a percentage of the original exposure, and
+the optical RMS as a percentage of the absolute normalized signal. A percentage
+is blank if its denominator is zero or unavailable. With plotting enabled,
+each run's file is also copied into its own `plots/optical_per_run/<run>/` folder.
+
+The per-run canvases show entries, mean, RMS, underflow, and overflow. The
+2D map describes ToT per pixel, the projections describe the plotted signal
+residuals, and the ToT diagnostics describe the original hits.
 
 The cut removes only hits whose ToT is strictly greater than the all-hit mean
 plus 10 RMS. It masks hits before building the optical maps. Exposure is

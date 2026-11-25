@@ -10,30 +10,23 @@ import numpy as np
 TOT_CUT_RMS = 10
 
 
-def write_optical_summary(run_dir, run_id, normalized_signal, original_exposure, excluded_exposure):
-    """Write the run summary after the optical signal fit completes."""
-    run_dir = Path(run_dir)
-    status = dict(
-        line.split(": ", 1)
-        for line in (run_dir / "diagnostics" / "spark_status.txt").read_text().splitlines()
-        if ": " in line
+def plot_statistics(values, lower=None, upper=None, quantity=None):
+    values = np.asarray(values)
+    label = f" ({quantity})" if quantity else ""
+    underflow = np.count_nonzero(values < lower) if lower is not None else 0
+    overflow = np.count_nonzero(values > upper) if upper is not None else 0
+    return (
+        f"Entries = {values.size:,}",
+        f"Mean{label} = {np.mean(values):.4g}",
+        f"RMS{label} = {np.std(values):.4g}",
+        f"Underflow = {underflow:,}",
+        f"Overflow = {overflow:,}",
     )
-    usable = original_exposure - excluded_exposure
-    columns = (
-        "runID", "S_O", "original_exposure", "number_of_sparks",
-        "number_of_sparkAlgo_iterations", "total_spark_exposure_removed",
-        "exposure_after_spark_removal", "S_O^norm",
-    )
-    values = (
-        run_id, normalized_signal * usable, original_exposure, status["Spark count"],
-        status["Spark algorithm iterations"], excluded_exposure, usable, normalized_signal,
-    )
-    with (run_dir / "run_summary.txt").open("w", newline="") as output:
-        output.write("S_O^norm = S_O / exposure_after_spark_removal\n")
-        writer = csv.writer(output, delimiter="\t", lineterminator="\n")
-        writer.writerow(columns)
-        writer.writerow([f"{value:.12g}" if isinstance(value, (float, np.floating)) else value
-                         for value in values])
+
+
+def draw_plot_statistics(ax, lines, *, x=0.02, y=0.97):
+    ax.text(x, y, "\n".join(lines), transform=ax.transAxes, va="top", fontsize=8,
+            bbox=dict(facecolor="white", edgecolor=".5", alpha=0.92))
 
 
 def flag_sparks(tot):
@@ -71,6 +64,7 @@ def save_tot_distribution(tot, output, removed=None):
                xlim=(left - padding, right + padding), yscale="log",
                title="Hit ToT distribution and spark cut")
         ax.legend()
+        draw_plot_statistics(ax, plot_statistics(tot, edges[0], edges[-1], "ToT"))
         fig.savefig(output, dpi=170)
     finally:
         plt.close(fig)
@@ -101,6 +95,9 @@ def save_tot_spectrum(seconds, tot, time_bins, width, output, removed=None):
             ax.legend(loc="upper right")
         max_tot = float(np.max(tot))
         ax.set_ylim(top=1.1 * max_tot if max_tot > 0 else tot_edges[-1])
+        lines = plot_statistics(tot, tot_edges[0], tot_edges[-1], "ToT")
+        draw_plot_statistics(ax, (*lines, f"Mean time (s) = {np.mean(seconds):.4g}",
+                                  f"RMS time (s) = {np.std(seconds):.4g}"))
         fig.savefig(output, dpi=170)
     finally:
         plt.close(fig)

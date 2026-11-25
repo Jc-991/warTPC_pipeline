@@ -6,6 +6,10 @@ import csv
 from pathlib import Path
 import re
 import shutil
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "blackbox"))
+from optical_summary import CONDITION_COLUMNS, read_optical_values, write_text_summary
 
 RUNS = tuple(f"vr22-{number:02d}" for number in range(6, 14))
 PAIRED_PLOTS = (
@@ -19,35 +23,14 @@ DIAGNOSTICS = (
 SUMMARY_COLUMNS = (
     "run", "spark_count", "spark_algorithm_iterations", "removal_applied", "exposure_before_s",
     "exposure_after_s", "exposure_excluded_s", "S_O_ms", "S_O_norm_ms_per_s",
-    "S_O_norm_rms_ms_per_s", "issues",
+    "S_O_norm_rms_ms_per_s", "S_O_error_in_percentage",
+    "percentage_of_removed_exposure", *CONDITION_COLUMNS, "issues",
 )
-TEXT_COLUMNS = (
-    ("runID", "run"),
-    ("S_O", "S_O_ms"),
-    ("original_exposure", "exposure_before_s"),
-    ("number_of_sparks", "spark_count"),
-    ("number_of_sparkAlgo_iterations", "spark_algorithm_iterations"),
-    ("total_spark_exposure_removed", "exposure_excluded_s"),
-    ("exposure_after_spark_removal", "exposure_after_s"),
-    ("S_O^norm", "S_O_norm_ms_per_s"),
-)
-
-
 def write_csv(path, fields, rows):
     with path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
-
-
-def write_text_summary(path, rows):
-    with path.open("w", newline="") as handle:
-        handle.write("S_O^norm = S_O / exposure_after_spark_removal\n")
-        writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
-        writer.writerow([label for label, _ in TEXT_COLUMNS])
-        for row in rows:
-            values = (row.get(key, "") for _, key in TEXT_COLUMNS)
-            writer.writerow([f"{value:.12g}" if isinstance(value, float) else value for value in values])
 
 
 def copy_plot(source, destination, issues):
@@ -125,19 +108,14 @@ def main():
         except (OSError, KeyError, ValueError) as error:
             issues.append(f"spark report: {error}")
         try:
-            with (cleaned / "integral.csv").open(newline="") as handle:
-                values = next(csv.reader(handle))
-            normalized = float(values[8])
-            exposure = float(values[15])
-            row.update(S_O_ms=normalized * exposure, S_O_norm_ms_per_s=normalized,
-                       S_O_norm_rms_ms_per_s=float(values[9]))
+            row.update(read_optical_values(cleaned, run))
         except (OSError, ValueError, IndexError, StopIteration) as error:
             issues.append(f"optical integral unavailable: {error}")
 
         before_plots = args.before / "plots" / "optical_per_run" / run
         copy_run_plots(before_plots, plots, cleaned / "diagnostics", destination, issues)
         row["issues"] = "; ".join(issues)
-        write_text_summary(destination / "run_summary.txt", [row])
+        write_text_summary(destination / "run_summary.txt", row)
         print(f"{run}: spark count {row.get('spark_count', 'unavailable')}"
               + (f" ({row['issues']})" if issues else ""))
 
