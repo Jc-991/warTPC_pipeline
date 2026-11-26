@@ -477,7 +477,10 @@ additional per-axis plots, prefix the optical command with
   separately. Repeat `-i PATH` for each dataset, or use `--series LABEL PATH`
   for custom legend labels. PATH can point to
   an exported `plots/` folder or its `results.csv`. Write the comparisons to
-  a new or empty directory with `--output`.
+  a new or empty directory with `--output`. Streaming, physics panels and
+  overlays are enabled by default. Use `--no-spo` for overlays only or
+  `--no-paper` to omit Figure 26. `--historical-charge` fills missing V50
+  and optical/V50 from matching historical runs and records their provenance.
 
 ## Environment variables
 
