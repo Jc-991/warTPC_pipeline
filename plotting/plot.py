@@ -51,13 +51,14 @@ PROJECTION_METRICS = {
     'X_RMS': r'$X_{\mathrm{RMS}}$ — positional RMS (pixels)',
     'Y_mean': r'$Y_{\mathrm{mean}}$ — mean position (pixels)',
     'Y_RMS': r'$Y_{\mathrm{RMS}}$ — positional RMS (pixels)',
-    'B_X_norm': r'$B_X^{\mathrm{norm}}$ — background ToT per exposure (ms/s)',
-    'B_Y_norm': r'$B_Y^{\mathrm{norm}}$ — background ToT per exposure (ms/s)',
+    'B_O_norm': r'$B_O^{\mathrm{norm}}$ — background ToT per exposure (ms/s)',
 }
 POSITION_METRICS = ('X_mean', 'X_RMS', 'Y_mean', 'Y_RMS')
 YLABEL.update(PROJECTION_METRICS)
+YLABEL['S_O_over_B_O_ratio'] = r'$S_O/B_O$ (dimensionless)'
 SPARK_METRICS = ('number_of_sparks', 'fraction_of_removed_exposure')
-OPTIONAL_METRICS = (*SPARK_METRICS, *PROJECTION_METRICS)
+OPTIONAL_METRICS = (*SPARK_METRICS, "X_mean", "Y_mean", "B_O_norm", "S_O_over_B_O_ratio")
+OPTICAL_RMS_FIELDS = ("X_mean_err", "Y_mean_err", "B_O_norm_err")
 VP_LABEL = r'$V_{43+21}/P$ (kV bar$^{-1}$)'
 # PLOT_GUIDE: hollow squares for pressure runs, solid circles for voltage runs.
 MARKER = {'pressure': ('s', False), 'voltage': ('o', True), 'unknown': ('D', True)}
@@ -209,10 +210,17 @@ def spark_values(summary):
 
 def projection_values(row):
     # Earlier exports used these four names for moments of ToT amplitudes.
-    values = {key: num(row.get(f'B_O_{key[2:]}_ms_per_s', row.get(f'{key}_ms_per_s', row.get(key))))
-              for key in PROJECTION_METRICS if key not in POSITION_METRICS}
+    values = {
+        "B_O_norm": num(row.get("B_O_norm_ms_per_s", row.get("B_O_norm"))),
+        "B_O_norm_err": num(row.get("B_O_norm_RMS_ms_per_s", row.get("B_O_norm_err"))),
+        "S_O_over_B_O_ratio": num(row.get("S_O_over_B_O_ratio")),
+    }
     if 'X_mean_pixel' in row or row.get('projection_position_unit') == 'pixel':
-        values.update({key: num(row.get(f'{key}_pixel', row.get(key))) for key in POSITION_METRICS})
+        for axis in ('X', 'Y'):
+            mean = f'{axis}_mean'
+            rms = f'{axis}_RMS'
+            values[mean] = num(row.get(f'{mean}_pixel', row.get(mean)))
+            values[f'{mean}_err'] = num(row.get(f'{rms}_pixel', row.get(f'{mean}_err', row.get(rms))))
     return values
 
 
@@ -476,7 +484,7 @@ def summary_plots(rows, dataset, kind, folder, warnings, metrics=None):
                 fig, ax = plt.subplots(figsize=(max(8, len(rows) * .48), 5.5) if mode == 'streaming' else (8, 5.5))
                 draw(ax, pts, COLORS[0], kind)
                 ax.set_title(dataset, fontsize=10)
-                clipped = finish(ax, scale, pts, signed=metric in PROJECTION_METRICS)
+                clipped = finish(ax, scale, pts, signed=metric in (*PROJECTION_METRICS, "S_O_over_B_O_ratio"))
                 if clipped:
                     warnings.append(f'{metric} {mode} {scale}: upper error bar clipped for '
                                     + ', '.join(used[i]['run'] for i in clipped))
@@ -509,7 +517,7 @@ def load_results(path, dataset=None):
     return rows
 
 
-def comparison_plots(rows, folder, paper, warnings, notes, metrics=None):
+def comparison_plots(rows, folder, paper, warnings, notes, metrics=None, *, summary_dataset=None):
     folder.mkdir(parents=True, exist_ok=True)
     datasets = sorted({r['dataset'] for r in rows}, key=natural_key)
     color = {d: COLORS[i % len(COLORS)] for i, d in enumerate(datasets)}
@@ -529,7 +537,7 @@ def comparison_plots(rows, folder, paper, warnings, notes, metrics=None):
                 entries.append((d, color[d], kind[d]))
                 allpts += pts
                 used_all += used
-        clipped = finish(ax, scale, allpts, signed=metric in PROJECTION_METRICS)
+        clipped = finish(ax, scale, allpts, signed=metric in (*PROJECTION_METRICS, "S_O_over_B_O_ratio"))
         if clipped:
             warnings.append(f'{metric} comparison: upper error bar clipped for '
                             + ', '.join(f"{used_all[i]['dataset']}/{used_all[i]['run']}" for i in clipped))
@@ -540,7 +548,12 @@ def comparison_plots(rows, folder, paper, warnings, notes, metrics=None):
         if metric in SPARK_METRICS and len(entries) == 1:
             ax.set_title('One dataset with spark measurements')
         filename = f'{metric}_overlay.png' if metric in OPTIONAL_METRICS else f'{metric}_physics_comparison.png'
-        fig.savefig(folder / filename, dpi=150)
+        summary_name = f'{metric}_physics_{scale}.png'
+        summary_plot = folder.parent / 'summary_plots' / summary_name
+        if len(entries) == 1 and entries[0][0] == summary_dataset and summary_plot.is_file():
+            shutil.copy2(summary_plot, folder / summary_name)
+        else:
+            fig.savefig(folder / filename, dpi=150)
         plt.close(fig)
 
     if paper is None:
@@ -591,7 +604,7 @@ def comparison_plots(rows, folder, paper, warnings, notes, metrics=None):
 # ---------------------------------------------------------------- tables / notes
 RESULT_FIELDS = ['dataset', 'kind', 'run', 'v_over_p', 'optical', 'optical_err', 'optical_rms_percent',
                  'optical_flags', 'v50', 'v50_err', 'v50_entries', 'v50_nonfinite', 'v50_outside_0_6000',
-                 'v50_flags', 'ratio', 'ratio_err', *OPTIONAL_METRICS, 'projection_position_unit', 'excluded']
+                 'v50_flags', 'ratio', 'ratio_err', *OPTIONAL_METRICS, *OPTICAL_RMS_FIELDS, 'projection_position_unit', 'excluded']
 CONDITION_FIELDS = ['run', 'settings_id', 'id_mismatch', 'V0', 'V1', 'V2', 'V3', 'V4', 'pressure_mbar',
                     'methane_fraction', 'exposure_time', 'v_over_p', 'unavailable']
 
@@ -671,6 +684,8 @@ def main():
     ap.add_argument('--paper-overlay', type=Path, default=REFERENCE / 'figure26_reference.png', help='calibrated 2750x2000 Fig. 26 image')
     ap.add_argument('--no-paper', action='store_true', help='skip the paper overlay')
     ap.add_argument('--rms-flag-percent', type=float, default=10.0, help='flag optical results with RMS above this %% of S_O (default 10)')
+    ap.add_argument('--share-summary-plots', action='store_true',
+                    help='reuse the physics plot for comparisons showing only the current dataset')
     ap.add_argument('--spark-only', action='store_true',
                     help='generate spark and projection observable plots from an exported plots folder containing optical_per_run/')
     a = ap.parse_args()
@@ -747,7 +762,8 @@ def main():
     paper = None if a.no_paper or not a.paper_overlay.is_file() else a.paper_overlay
     if paper is None and not a.no_paper:
         issues.append(f'paper overlay image not found: {a.paper_overlay}')
-    comparison_plots(combined, out / 'comparisons', paper, warnings, notes)
+    comparison_plots(combined, out / 'comparisons', paper, warnings, notes,
+                     summary_dataset=dataset if a.share_summary_plots else None)
     with (out / 'comparisons' / 'notes.csv').open('w', newline='') as f:
         w = csv.writer(f)
         w.writerow(['dataset', 'run', 'category', 'detail'])

@@ -2,7 +2,7 @@
 
 import csv
 import math
-from statistics import fmean
+from statistics import fmean, pstdev
 from pathlib import Path
 
 
@@ -14,7 +14,8 @@ VARIATION_FILE = "projection_variations.csv"
 VARIATION_COLUMNS = ("axis", "polynomial_degree", "signal_sigma", "sideband_sigma",
                      "mean_pixel", "rms_pixel", "background_norm_ms_per_s", "signal_ms", "background_ms")
 PROJECTION_COLUMNS = ("X_mean", "X_RMS", "Y_mean", "Y_RMS", "B_X_norm", "B_Y_norm", "A", "A_X", "A_Y", "B_X", "B_Y")
-VARIATION_SUMMARY_COLUMNS = ("S_O_X_ms", "S_O_Y_ms", "B_O_ms")
+VARIATION_SUMMARY_COLUMNS = ("S_O_X_ms", "S_O_Y_ms", "B_O_ms", "B_O_RMS_ms")
+BACKGROUND_NORMALIZED_COLUMNS = ("B_O_norm_ms_per_s", "B_O_norm_RMS_ms_per_s", "B_O_error_fraction")
 TEXT_COLUMNS = (
     ("runID", "run"),
     ("settings_id", "settings_id"),
@@ -37,6 +38,9 @@ TEXT_COLUMNS = (
     ("S_O_error_fraction", "S_O_error_fraction"),
     *((key, key) for key in ("S_O_X_ms", "S_O_Y_ms")),
     ("B_O_ms", "B_O_ms"),
+    ("B_O_RMS_ms", "B_O_RMS_ms"),
+    *((key, key) for key in BACKGROUND_NORMALIZED_COLUMNS),
+    ("S_O_over_B_O_ratio", "S_O_over_B_O_ratio"),
     *((key, key) for key in ("B_X", "B_Y", "B_X_norm", "B_Y_norm")),
     *((key, key) for key in ("X_mean", "X_RMS", "Y_mean", "Y_RMS")),
 )
@@ -104,7 +108,24 @@ def projection_label(key, position_unit):
     return f"{key}_{unit}"
 
 
+def signal_to_background(row):
+    signal, background = number(row.get("S_O_ms")), number(row.get("B_O_ms"))
+    return number(signal / background) if signal is not None and background else None
+
+
+def background_normalized(row):
+    mean, rms, exposure = (number(row.get(key)) for key in
+                           ("B_O_ms", "B_O_RMS_ms", "exposure_after_s"))
+    return dict(
+        B_O_norm_ms_per_s=mean / exposure if mean is not None and exposure and exposure > 0 else None,
+        B_O_norm_RMS_ms_per_s=rms / exposure if rms is not None and exposure and exposure > 0 else None,
+        B_O_error_fraction=absolute_fraction(rms, mean),
+    )
+
+
 def write_text_summary(path, row):
+    row = dict(row)
+    row.update(S_O_over_B_O_ratio=signal_to_background(row), **background_normalized(row))
     unit = row.get("projection_position_unit")
     labels = [projection_label(key, unit) if key in PROJECTION_COLUMNS else label
               for label, key in TEXT_COLUMNS]
@@ -149,11 +170,13 @@ def read_projection_observables(path):
         result[key] = number(row.get(label, row.get(old_label, row.get(key))))
     for key in VARIATION_SUMMARY_COLUMNS:
         result[key] = fit_mean((row.get(key) or "").split(","))
+    result["S_O_over_B_O_ratio"] = signal_to_background(dict(result, S_O_ms=row.get("S_O_ms")))
     for axis in ("X", "Y"):
         if result[f"A_{axis}"] is None:
             result[f"A_{axis}"] = result["A"]
     result["projection_position_unit"] = unit
     exposure = number(row.get("exposure_after_spark_removal_s"))
+    result.update(background_normalized(dict(result, exposure_after_s=exposure)))
     if exposure is not None and exposure > 0:
         for key in ("B_X", "B_Y"):
             normalized = result[f"{key}_norm"]
@@ -185,10 +208,12 @@ def fit_mean(values):
 
 
 def variation_summary(variations):
+    backgrounds = [value for fit in variations if (value := number(fit["background_ms"])) is not None]
     return {
         "S_O_X_ms": fit_mean(fit["signal_ms"] for fit in variations if fit["axis"] == "X"),
         "S_O_Y_ms": fit_mean(fit["signal_ms"] for fit in variations if fit["axis"] == "Y"),
-        "B_O_ms": fit_mean(fit["background_ms"] for fit in variations),
+        "B_O_ms": fmean(backgrounds) if backgrounds else None,
+        "B_O_RMS_ms": pstdev(backgrounds) if backgrounds else None,
     }
 
 def write_optical_summary(run_dir, projection_observables, variations):

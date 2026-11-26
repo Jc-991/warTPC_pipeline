@@ -209,7 +209,7 @@ plot_ok=0
 if [[ $do_plot -eq 1 ]]; then
   echo; echo "=== plot ==="
   if [[ -d "$results/optical" || -d "$results/charge" ]]; then
-    "$BUILD/plot" -i "$results" -o "$results/plots" --dataset "$stem" ${kind:+--kind "$kind"} \
+    "$BUILD/plot" -i "$results" -o "$results/plots" --dataset "$stem" --share-summary-plots ${kind:+--kind "$kind"} \
       && plot_ok=1 || { status=1; echo "plot failed"; }
   else
     status=1; echo "plot skipped: no analysis results in $results"
@@ -278,9 +278,9 @@ if [[ -n "$spark_work" ]]; then
   fi
 fi
 
-optical_plots="$results/plots/optical_per_run"
-if [[ "$run_what" != charge && $do_plot -eq 1 && -d "$optical_plots" ]]; then
-  "${WARTPC_PYTHON:-python3}" "$REPO/scripts/organise-optical-plots.py" "$optical_plots" || status=1
+if [[ $do_plot -eq 1 && -d "$results/plots" ]]; then
+  "${WARTPC_PYTHON:-python3}" "$REPO/scripts/organise-optical-plots.py" \
+    --workflow-export "$results/plots" || status=1
 fi
 
 echo

@@ -86,7 +86,7 @@ def save_tot_distribution(tot, output, removed=None, *, grouped=False):
         plt.close(fig)
 
 
-def save_tot_spectrum(seconds, tot, width, output, removed=None):
+def save_tot_spectrum(seconds, tot, width, output, removed=None, *, spark_times=None):
     """Plot the unfiltered ToT distribution as a function of run time."""
     from matplotlib import pyplot as plt
     from matplotlib.colors import LogNorm
@@ -111,6 +111,16 @@ def save_tot_spectrum(seconds, tot, width, output, removed=None):
                        label=f"Removed hits ({int(removed.sum()):,})")
             ax.set_title("ToT versus arrival time with removed hits marked")
             ax.legend(loc="upper right")
+        if spark_times is not None:
+            ax.set_title(f"ToT versus arrival time · {len(spark_times):,} flagged spark windows")
+            # Use a visible line for each window because 5 ms is subpixel at full-run scale.
+            for time in spark_times:
+                ax.axvline(time, color="tab:red", linestyle="--", linewidth=1, alpha=0.85)
+            if len(spark_times) <= 10 and np.all(np.diff(spark_times) > 0.025 * (edges[-1] - edges[0])):
+                for index, time in enumerate(spark_times, 1):
+                    ax.annotate(str(index), (time, 1), xycoords=ax.get_xaxis_transform(),
+                                xytext=(0, 2), textcoords="offset points", ha="center",
+                                va="bottom", color="tab:red", fontsize=8)
         max_tot = float(np.max(tot))
         ax.set_ylim(top=1.1 * max_tot if max_tot > 0 else tot_edges[-1])
         lines = plot_statistics(tot, tot_edges[0], tot_edges[-1], "ToT")
@@ -220,7 +230,9 @@ def spark_cut(toa, tot, report_path, *, mode=None):
             removed_mask = ~keep if keep is not None else np.zeros(count, dtype=bool)
             save_tot_spectrum(seconds, tot, width,
                               report.with_name("tot-vs-time-spark-removal.png"),
-                              removed=removed_mask)
+                              removed=removed_mask,
+                              spark_times=[(start + stop) / (2 * TOA_TICKS_PER_SECOND)
+                                           for start, stop in intervals] if grouped else None)
         histogram_mask = flagged if mode == "remove" else None
         save_tot_distribution(values, report.with_name("tot-distribution-before-sparks.png"),
                               histogram_mask, grouped=grouped)

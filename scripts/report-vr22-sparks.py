@@ -10,7 +10,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "blackbox"))
 from optical_summary import (
-    CONDITION_COLUMNS, PROJECTION_COLUMNS, VARIATION_SUMMARY_COLUMNS, read_optical_values,
+    BACKGROUND_NORMALIZED_COLUMNS, CONDITION_COLUMNS, PROJECTION_COLUMNS,
+    VARIATION_SUMMARY_COLUMNS, read_optical_values,
     read_projection_observables, write_text_summary,
 )
 
@@ -27,7 +28,8 @@ SUMMARY_COLUMNS = (
     "exposure_after_s", "exposure_excluded_s", "S_O_ms", "S_O_norm_ms_per_s",
     "S_O_norm_rms_ms_per_s", "S_O_error_in_percentage",
     "percentage_of_removed_exposure", "fraction_of_removed_exposure", "S_O_error_fraction",
-    *CONDITION_COLUMNS, *PROJECTION_COLUMNS, *VARIATION_SUMMARY_COLUMNS, "projection_position_unit", "issues",
+    *CONDITION_COLUMNS, *PROJECTION_COLUMNS, *VARIATION_SUMMARY_COLUMNS, *BACKGROUND_NORMALIZED_COLUMNS,
+    "S_O_over_B_O_ratio", "projection_position_unit", "issues",
 )
 def write_csv(path, fields, rows):
     with path.open("w", newline="") as handle:

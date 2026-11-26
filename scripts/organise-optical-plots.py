@@ -21,6 +21,44 @@ PLOT_ORDER = (
 )
 
 
+SUMMARY_PLOT_ORDER = (
+    "optical_streaming_linear", "optical_physics_linear",
+    "optical_streaming_log", "optical_physics_log",
+    "X_mean_streaming_linear", "X_mean_physics_linear",
+    "X_RMS_streaming_linear", "X_RMS_physics_linear",
+    "Y_mean_streaming_linear", "Y_mean_physics_linear",
+    "Y_RMS_streaming_linear", "Y_RMS_physics_linear",
+    "B_X_norm_streaming_linear", "B_X_norm_physics_linear",
+    "B_Y_norm_streaming_linear", "B_Y_norm_physics_linear",
+    "number_of_sparks_streaming_linear", "number_of_sparks_physics_linear",
+    "fraction_of_removed_exposure_streaming_linear",
+    "fraction_of_removed_exposure_physics_linear",
+    "v50_streaming_linear", "v50_physics_linear",
+    "v50_streaming_log", "v50_physics_log",
+    "ratio_streaming_linear", "ratio_physics_linear",
+    "S_O_over_B_O_ratio_streaming_linear", "S_O_over_B_O_ratio_physics_linear",
+    "B_O_norm_streaming_linear", "B_O_norm_physics_linear",
+)
+COMPARISON_PLOT_ORDER = (
+    "optical_physics_comparison", "optical_paper_overlay",
+    "v50_physics_comparison", "ratio_physics_comparison",
+    "X_mean_overlay", "X_RMS_overlay", "Y_mean_overlay", "Y_RMS_overlay",
+    "B_X_norm_overlay", "B_Y_norm_overlay", "number_of_sparks_overlay",
+    "fraction_of_removed_exposure_overlay",
+    "S_O_over_B_O_ratio_overlay", "B_O_norm_overlay",
+)
+
+
+def add_plot_ids(folder, prefix, stems):
+    for number, stem in enumerate(stems, start=1):
+        source = folder / f"{stem}.png"
+        if source.is_file():
+            target = folder / f"{prefix}{number:02d}_{source.name}"
+            if target.exists():
+                raise FileExistsError(f"Plot destination already exists: {target}")
+            source.rename(target)
+
+
 def plot_sort_key(stem):
     base, _, suffix = stem.rpartition("_")
     phase = {"before": 1, "after": 2}.get(suffix, 0)
@@ -61,5 +99,15 @@ def organise(root):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
+    parser.add_argument("--workflow-export", action="store_true",
+                        help="number plots in the workflow's top-level plots folder")
     args = parser.parse_args()
-    print(f"Organised {organise(args.directory)} per-run plots")
+    if args.workflow_export:
+        add_plot_ids(args.directory / "summary_plots", "S", SUMMARY_PLOT_ORDER)
+        add_plot_ids(args.directory / "comparisons", "S", SUMMARY_PLOT_ORDER)
+        add_plot_ids(args.directory / "comparisons", "C", COMPARISON_PLOT_ORDER)
+        directory = args.directory / "optical_per_run"
+    else:
+        directory = args.directory
+    if directory.is_dir():
+        print(f"Organised {organise(directory)} per-run plots")
