@@ -339,7 +339,7 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
     background_ms = total_tot_ms - integral
     variation = projection_variation(
         axis_name, order, signal_sig, sideband_sig, sig3_full_bins, sig3_full,
-        float(background_ms / exposure),
+        float(background_ms / exposure), float(integral), float(background_ms),
     )
     projection_variations.append(variation)
     if save_standard_plot:

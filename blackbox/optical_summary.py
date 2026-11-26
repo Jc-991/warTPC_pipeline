@@ -11,8 +11,9 @@ CONDITION_COLUMNS = (
 )
 VARIATION_FILE = "projection_variations.csv"
 VARIATION_COLUMNS = ("axis", "polynomial_degree", "signal_sigma", "sideband_sigma",
-                     "mean_pixel", "rms_pixel", "background_norm_ms_per_s")
+                     "mean_pixel", "rms_pixel", "background_norm_ms_per_s", "signal_ms", "background_ms")
 PROJECTION_COLUMNS = ("X_mean", "X_RMS", "Y_mean", "Y_RMS", "B_X_norm", "B_Y_norm", "A", "A_X", "A_Y", "B_X", "B_Y")
+VARIATION_SUMMARY_COLUMNS = ("S_O_X_ms", "S_O_Y_ms", "B_O_ms")
 TEXT_COLUMNS = (
     ("runID", "run"),
     ("settings_id", "settings_id"),
@@ -34,6 +35,7 @@ TEXT_COLUMNS = (
     ("S_O_error_fraction", "S_O_error_fraction"),
     *((key, key) for key in PROJECTION_COLUMNS),
     ("projection_position_unit", "projection_position_unit"),
+    *((key, key) for key in VARIATION_SUMMARY_COLUMNS),
 )
 
 
@@ -88,8 +90,18 @@ def read_optical_values(run_dir, run):
     return result
 
 
+def projection_label(key, position_unit):
+    if key in ("X_mean", "X_RMS", "Y_mean", "Y_RMS"):
+        unit = "pixel" if position_unit == "pixel" else "ms"
+    else:
+        unit = "ms_per_s" if key.endswith("_norm") else "ms"
+    return f"{key}_{unit}"
+
+
 def write_text_summary(path, row):
-    labels = [label for label, _ in TEXT_COLUMNS]
+    unit = row.get("projection_position_unit")
+    labels = [projection_label(key, unit) if key in PROJECTION_COLUMNS else label
+              for label, key in TEXT_COLUMNS]
     values = []
     for _, key in TEXT_COLUMNS:
         value = row.get(key)
@@ -109,6 +121,7 @@ def write_text_summary(path, row):
             handle.write("X/Y mean and RMS use residual ToT (ms).\n")
         handle.write("B_X_norm and B_Y_norm use ms/s.\n")
         handle.write("A = A_X = A_Y. A and B_X/B_Y are summed ToT (ms).\n")
+        handle.write("Variation lists follow the fit CSV row order. S_O lists select one axis.\n")
         handle.write("Absolute fractions: 1 = 100%.\n\n")
         for label, value in zip(labels, values):
             if value is None or value == "":
@@ -122,7 +135,10 @@ def read_projection_observables(path):
             row = next(csv.DictReader(handle, delimiter="\t"))
     except (FileNotFoundError, StopIteration):
         return {}
-    result = {key: number(row.get(key)) for key in PROJECTION_COLUMNS}
+    unit = row.get("projection_position_unit")
+    result = {key: number(row.get(projection_label(key, unit), row.get(key)))
+              for key in PROJECTION_COLUMNS}
+    result.update({key: row.get(key) for key in VARIATION_SUMMARY_COLUMNS})
     for axis in ("X", "Y"):
         if result[f"A_{axis}"] is None:
             result[f"A_{axis}"] = result["A"]
@@ -137,7 +153,7 @@ def read_projection_observables(path):
 
 
 def projection_variation(axis, degree, signal_sigma, sideband_sigma, positions, residuals,
-                         background_norm):
+                         background_norm, signal_ms, background_ms):
     """Use positive, background-subtracted ToT as the position weights."""
     weights = [max(0.0, float(value)) for value in residuals]
     total = math.fsum(weights)
@@ -149,7 +165,16 @@ def projection_variation(axis, degree, signal_sigma, sideband_sigma, positions, 
         ) / total)
     return dict(axis=axis, polynomial_degree=degree, signal_sigma=signal_sigma,
                 sideband_sigma=sideband_sigma, mean_pixel=mean, rms_pixel=rms,
-                background_norm_ms_per_s=background_norm)
+                background_norm_ms_per_s=background_norm, signal_ms=signal_ms,
+                background_ms=background_ms)
+
+
+def variation_summary(variations):
+    return {
+        "S_O_X_ms": ", ".join(f'{fit["signal_ms"]:.12g}' for fit in variations if fit["axis"] == "X"),
+        "S_O_Y_ms": ", ".join(f'{fit["signal_ms"]:.12g}' for fit in variations if fit["axis"] == "Y"),
+        "B_O_ms": ", ".join(f'{fit["background_ms"]:.12g}' for fit in variations),
+    }
 
 
 def write_optical_summary(run_dir, projection_observables, variations):
@@ -168,4 +193,5 @@ def write_optical_summary(run_dir, projection_observables, variations):
                spark_algorithm_iterations=status["Spark algorithm iterations"])
     row.update(projection_observables, projection_position_unit="pixel")
     row.update(A_X=row.get("A"), A_Y=row.get("A"))
+    row.update(variation_summary(variations))
     write_text_summary(run_dir / "run_summary.txt", row)

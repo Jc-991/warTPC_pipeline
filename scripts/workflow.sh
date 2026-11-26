@@ -239,7 +239,8 @@ if [[ -n "$spark_work" ]]; then
       if [[ -f "$spark_work/report/run_summary.csv" ]]; then
         for run in "${optical_runs[@]}"; do
           [[ -d "$export_dir/$run" ]] || continue
-          for plot in "$paired/$run/"*_before.png "$paired/$run/"*_after.png; do
+          for plot in "$paired/$run/"*_before.png "$paired/$run/"*_after.png \
+                      "$paired/$run/"projection_variations_{before,after}.csv; do
             [[ -f "$plot" ]] || continue
             cp -- "$plot" "$export_dir/$run/" || die "cannot publish $plot"
             case ${plot##*/} in
@@ -248,13 +249,21 @@ if [[ -n "$spark_work" ]]; then
                 rm -f -- "$export_dir/$run/${plot_name%_after.png}.png" \
                   || die "cannot remove the duplicate plot for $run"
                 ;;
+              projection_variations_after.csv)
+                rm -f -- "$export_dir/$run/projection_variations.csv" \
+                  || die "cannot remove the duplicate fit table for $run"
+                ;;
             esac
           done
-          if [[ -d "$paired/$run/distributions" ]]; then
-            rm -rf -- "$export_dir/$run/distributions" &&
-              mv -- "$paired/$run/distributions" "$export_dir/$run/distributions" \
-                || die "cannot publish the fit distributions for $run"
-          fi
+          for plot in "$paired/$run"_*_fit_distribution_{before,after}.png; do
+            [[ -f "$plot" ]] || continue
+            cp -- "$plot" "$export_dir/" || die "cannot publish $plot"
+            if [[ ${plot##*/} == *_after.png ]]; then
+              plot_name=${plot##*/}
+              rm -f -- "$export_dir/${plot_name%_after.png}.png" \
+                || die "cannot remove the duplicate fit distribution for $run"
+            fi
+          done
         done
         echo "Optical exports (available plots): $export_dir"
       fi
@@ -267,6 +276,11 @@ if [[ -n "$spark_work" ]]; then
     echo "Paired optical export failed. Work files: $spark_work"
     spark_work=""
   fi
+fi
+
+optical_plots="$results/plots/optical_per_run"
+if [[ "$run_what" != charge && $do_plot -eq 1 && -d "$optical_plots" ]]; then
+  "${WARTPC_PYTHON:-python3}" "$REPO/scripts/organise-optical-plots.py" "$optical_plots" || status=1
 fi
 
 echo

@@ -209,8 +209,11 @@ def spark_values(summary):
 
 def projection_values(row):
     # Earlier exports used these four names for moments of ToT amplitudes.
-    return {key: num(row.get(key)) for key in PROJECTION_METRICS
-            if key not in POSITION_METRICS or row.get('projection_position_unit') == 'pixel'}
+    values = {key: num(row.get(f'{key}_ms_per_s', row.get(key)))
+              for key in PROJECTION_METRICS if key not in POSITION_METRICS}
+    if row.get('projection_position_unit') == 'pixel':
+        values.update({key: num(row.get(f'{key}_pixel', row.get(key))) for key in POSITION_METRICS})
+    return values
 
 
 def plot_projection_distributions(source, destination, run):
@@ -221,7 +224,6 @@ def plot_projection_distributions(source, destination, run):
         for metric, column in (
             (f'{axis}_mean', 'mean_pixel'),
             (f'{axis}_RMS', 'rms_pixel'),
-            (f'B_{axis}_norm', 'background_norm_ms_per_s'),
         ):
             values = [value for fit in fits if (value := num(fit[column])) is not None]
             if not values:
@@ -233,8 +235,32 @@ def plot_projection_distributions(source, destination, run):
             ax.set_ylabel('Fit settings per bin')
             ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
             fig.tight_layout()
-            fig.savefig(destination / f'{metric}_fit_distribution.png', dpi=150)
+            fig.savefig(destination / f'{run}_{metric}_fit_distribution.png', dpi=150)
             plt.close(fig)
+    plot_background_distribution(rows, destination / f'{run}_B_O_norm_fit_distribution.png', run)
+
+
+def plot_background_distribution(rows, destination, title):
+    by_axis = {'X': [], 'Y': []}
+    for row in rows:
+        value = num(row['background_norm_ms_per_s'])
+        if value is not None:
+            by_axis[row['axis']].append(value)
+    values = by_axis['X'] + by_axis['Y']
+    if not values:
+        return
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    ax.hist(list(by_axis.values()), bins=np.histogram_bin_edges(values, bins=20),
+            stacked=True, color=['blue', 'red'], edgecolor='white',
+            label=[f'{axis} ({len(group)})' for axis, group in by_axis.items()])
+    ax.set_title(f'{title} · {len(values)} fit settings')
+    ax.set_xlabel(r'$B_O^{\mathrm{norm}}$ (ms/s)')
+    ax.set_ylabel('Fit settings per bin')
+    ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(destination, dpi=150)
+    plt.close(fig)
 
 
 def exported_spark_rows(src, dataset, kind, excluded):
@@ -313,10 +339,8 @@ def analyse_runs(src, out, rms_limit, warnings, issues):
                     shutil.copy2(opt / name, dst / name)
             variations = opt / 'diagnostics' / 'projection_variations.csv'
             if variations.is_file() and (opt / 'integral.csv').is_file():
-                distributions = dst / 'distributions'
-                distributions.mkdir(exist_ok=True)
-                shutil.copy2(variations, distributions / variations.name)
-                plot_projection_distributions(variations, distributions, run)
+                shutil.copy2(variations, dst / variations.name)
+                plot_projection_distributions(variations, dst.parent, run)
             for rel, name in OPTICAL_PER_RUN.items():
                 if (opt / rel).is_file():
                     shutil.copy2(opt / rel, dst / name)

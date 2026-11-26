@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "blackbox"))
 from optical_summary import (
-    CONDITION_COLUMNS, PROJECTION_COLUMNS, read_optical_values,
+    CONDITION_COLUMNS, PROJECTION_COLUMNS, VARIATION_SUMMARY_COLUMNS, read_optical_values,
     read_projection_observables, write_text_summary,
 )
 
@@ -27,7 +27,7 @@ SUMMARY_COLUMNS = (
     "exposure_after_s", "exposure_excluded_s", "S_O_ms", "S_O_norm_ms_per_s",
     "S_O_norm_rms_ms_per_s", "S_O_error_in_percentage",
     "percentage_of_removed_exposure", "fraction_of_removed_exposure", "S_O_error_fraction",
-    *CONDITION_COLUMNS, *PROJECTION_COLUMNS, "projection_position_unit", "issues",
+    *CONDITION_COLUMNS, *PROJECTION_COLUMNS, *VARIATION_SUMMARY_COLUMNS, "projection_position_unit", "issues",
 )
 def write_csv(path, fields, rows):
     with path.open("w", newline="") as handle:
@@ -57,16 +57,11 @@ def copy_run_plots(before_plots, after_plots, diagnostics, destination, issues):
             output = destination / f"{Path(name).stem}_{phase}.png"
             copy_plot(folder / name, output, issues)
     for phase, folder in (("before", before_plots), ("after", after_plots)):
-        distributions = folder / "distributions"
-        if not distributions.is_dir():
-            distributions = folder  # Older plot exports stored these in the run folder.
-        files = [*distributions.glob("*_fit_distribution.png"),
-                 distributions / "projection_variations.csv"]
-        for source in files:
-            if source.is_file():
-                output = destination / "distributions"
-                output.mkdir(exist_ok=True)
-                shutil.copy2(source, output / f"{source.stem}_{phase}{source.suffix}")
+        for source in folder.parent.glob(f"{folder.name}_*_fit_distribution.png"):
+            shutil.copy2(source, destination.parent / f"{source.stem}_{phase}.png")
+        variations = folder / "projection_variations.csv"
+        if variations.is_file():
+            shutil.copy2(variations, destination / f"projection_variations_{phase}.csv")
 
 
 
