@@ -195,7 +195,7 @@ analysis.
 - `run_conditions.md`: voltages, pressure, methane fraction, exposure and V/P
   for each run.
 - `results.csv`: the numbers behind every plot.
-- `summary_plots/`, `comparisons/`, `v50_distributions/` and
+- `summary_plots/`, `v50_distributions/` and
   `optical_per_run/`.
 - `status.txt` and `warnings.txt`.
 
@@ -284,7 +284,6 @@ After a `workflow.sh` run, check these files in this order:
    shows why.
 2. `plots/status.txt`: missing inputs, for example no `pulseheights.csv`.
 3. `plots/warnings.txt`: settings-ID mismatches and clipped error bars.
-4. `plots/comparisons/notes.csv`: excluded and provisional points.
 
 ## rebinX(2) switch: --rebin-x on|off
 
@@ -474,8 +473,11 @@ additional per-axis plots, prefix the optical command with
 - **Same dataset folder, same `<output_dir>`:** optical and charge overwrite
   their earlier results, and the plots are remade. Nothing is unzipped.
 - **To keep earlier results,** use a different `<output_dir>`.
-- **To compare with an earlier pass,** run `build/plot` yourself with
-  `--compare <earlier results>/plots`.
+- **To compare selected exports,** run `scripts/compare-optical-results.sh`
+  separately. Repeat `-i PATH` for each dataset, or use `--series LABEL PATH`
+  for custom legend labels. PATH can point to
+  an exported `plots/` folder or its `results.csv`. Write the comparisons to
+  a new or empty directory with `--output`.
 
 ## Environment variables
 

@@ -209,7 +209,7 @@ plot_ok=0
 if [[ $do_plot -eq 1 ]]; then
   echo; echo "=== plot ==="
   if [[ -d "$results/optical" || -d "$results/charge" ]]; then
-    "$BUILD/plot" -i "$results" -o "$results/plots" --dataset "$stem" --share-summary-plots ${kind:+--kind "$kind"} \
+    "$BUILD/plot" -i "$results" -o "$results/plots" --dataset "$stem" --no-comparisons ${kind:+--kind "$kind"} \
       && plot_ok=1 || { status=1; echo "plot failed"; }
   else
     status=1; echo "plot skipped: no analysis results in $results"
@@ -224,7 +224,7 @@ if [[ -n "$spark_work" ]]; then
     [[ "$run" != results ]] && optical_runs+=("$run")
   done
   if [[ $plot_ok -eq 1 && ${#optical_runs[@]} -gt 0 ]] &&
-    "$BUILD/plot" -i "$spark_work/before" -o "$spark_work/before/plots" --dataset "$stem" ${kind:+--kind "$kind"}; then
+    "$BUILD/plot" -i "$spark_work/before" -o "$spark_work/before/plots" --dataset "$stem" --no-comparisons ${kind:+--kind "$kind"}; then
     report_status=0
     "${WARTPC_PYTHON:-python3}" "$REPO/scripts/report-vr22-sparks.py" \
       "$spark_work/before" "$results" "$spark_work/report" --runs "${optical_runs[@]}" \

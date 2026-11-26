@@ -513,6 +513,7 @@ def load_results(path, dataset=None):
             r = {k: num(row.get(k)) for k in ('v_over_p', 'optical', 'optical_err', 'v50',
                                               'v50_err', 'ratio', 'ratio_err', *SPARK_METRICS)}
             r.update(projection_values(row))
+            r['excluded'] = row.get('excluded', '').strip().lower() == 'yes'
             r['run'] = row.get('run', '')
             r['dataset'] = dataset or row.get('dataset', '')
             r['kind'] = row.get('kind') or infer_kind(r['dataset'], [r['run']])
@@ -659,12 +660,11 @@ optical_per_run/        Four classic plots plus the available spark diagnostics.
 v50_distributions/      Channel-B V50 histogram per run (own x range; peak estimate dashed).
 summary_plots/          {{optical,v50}}_{{streaming,physics}}_{{linear,log}}.png and
                         ratio_{{streaming,physics}}_linear.png for this dataset.
-comparisons/            optical/v50/ratio physics comparisons with other scans and passes,
-                        Fig. 26 paper overlay, paper_overlay_out_of_range.csv, notes.csv.
+{comparison_help}
 warnings.txt, status.txt  Metadata/plot warnings and missing or failed inputs.
 
 Markers: hollow squares = pressure runs, solid circles = voltage runs, diamonds = unknown
-type; a black x marks a point with a review flag (listed in comparisons/notes.csv).
+type; a black x marks a point with a review flag in results.csv.
 Excluded from summary and comparison plots: {excluded} (values remain in results.csv).
 
 Spreads
@@ -693,6 +693,7 @@ def main():
     ap.add_argument('--compare', type=Path, nargs='*', default=[], help='earlier `plot` output folders to include in comparisons')
     ap.add_argument('--paper-overlay', type=Path, default=REFERENCE / 'figure26_reference.png', help='calibrated 2750x2000 Fig. 26 image')
     ap.add_argument('--no-paper', action='store_true', help='skip the paper overlay')
+    ap.add_argument('--no-comparisons', action='store_true', help='generate dataset plots only')
     ap.add_argument('--rms-flag-percent', type=float, default=10.0, help='flag optical results with RMS above this %% of S_O (default 10)')
     ap.add_argument('--share-summary-plots', action='store_true',
                     help='reuse the physics plot for comparisons showing only the current dataset')
@@ -708,9 +709,10 @@ def main():
         if not rows:
             ap.error(f'{src} has no exported run summaries')
         summary_plots(rows, dataset, rows[0]['kind'], out / 'summary_plots', [], metrics=OPTIONAL_METRICS)
-        comparison_rows = [r for directory in a.compare for r in load_results(directory / 'results.csv')
-                           if r['dataset'] != dataset and r['run'] not in excluded]
-        comparison_plots(rows + comparison_rows, out / 'comparisons', None, [], [], metrics=OPTIONAL_METRICS)
+        if not a.no_comparisons:
+            comparison_rows = [r for directory in a.compare for r in load_results(directory / 'results.csv')
+                               if r['dataset'] != dataset and r['run'] not in excluded]
+            comparison_plots(rows + comparison_rows, out / 'comparisons', None, [], [], metrics=OPTIONAL_METRICS)
         return 0
     if not (src / 'optical').is_dir() and not (src / 'charge').is_dir():
         ap.error(f'{src} has neither optical/ nor charge/')
@@ -720,7 +722,10 @@ def main():
     excluded = {x.strip() for x in a.exclude.split(',') if x.strip()}
 
     out.mkdir(parents=True, exist_ok=True)
-    for sub in ('optical_per_run', 'v50_distributions', 'summary_plots', 'comparisons'):
+    subfolders = ('optical_per_run', 'v50_distributions', 'summary_plots')
+    if not a.no_comparisons:
+        subfolders += ('comparisons',)
+    for sub in subfolders:
         shutil.rmtree(out / sub, ignore_errors=True)
     (out / 'v50_distributions').mkdir()
 
@@ -740,50 +745,56 @@ def main():
     shown = [r for r in rows if r['run'] not in excluded]
     summary_plots(shown, dataset, kind, out / 'summary_plots', warnings)
 
-    # Comparison set: history baseline, earlier plot outputs, then this dataset.
-    # A dataset's newest results replace its older ones.
-    groups = {}
-    if a.history and a.history.is_file():
-        for r in load_results(a.history):
-            groups.setdefault(r['dataset'], []).append(r)
-    elif a.history:
-        issues.append(f'history file not found: {a.history}')
-    for d in a.compare:
-        f = d.expanduser() / 'results.csv'
-        if f.is_file():
-            prev = load_results(f)
-            for name in {r['dataset'] for r in prev}:
-                groups[name] = [r for r in prev if r['dataset'] == name]
-        else:
-            issues.append(f'--compare {d}: no results.csv')
-    groups[dataset] = [dict(r) for r in rows]
-    combined, notes = [], []
-    for name, rs in groups.items():
-        for r in rs:
-            if r['run'] in excluded:
-                notes.append((name, r['run'], 'excluded', 'left out of summary and comparison plots'))
-                continue
-            for key in ('optical_flags', 'v50_flags'):
-                if r.get(key):
-                    notes.append((name, r['run'], 'provisional', f"{key.split('_')[0]}: {r[key]}"))
-            if r.get('v_over_p') is None:
-                notes.append((name, r['run'], 'missing V/P', 'not on physics plots'))
-            combined.append(r)
-    paper = None if a.no_paper or not a.paper_overlay.is_file() else a.paper_overlay
-    if paper is None and not a.no_paper:
-        issues.append(f'paper overlay image not found: {a.paper_overlay}')
-    comparison_plots(combined, out / 'comparisons', paper, warnings, notes,
-                     summary_dataset=dataset if a.share_summary_plots else None)
-    with (out / 'comparisons' / 'notes.csv').open('w', newline='') as f:
-        w = csv.writer(f)
-        w.writerow(['dataset', 'run', 'category', 'detail'])
-        w.writerows(sorted(notes, key=lambda n: (natural_key(n[0]), natural_key(n[1]))))
+    if not a.no_comparisons:
+        # Comparison set: history baseline, earlier plot outputs, then this dataset.
+        # A dataset's newest results replace its older ones.
+        groups = {}
+        if a.history and a.history.is_file():
+            for r in load_results(a.history):
+                groups.setdefault(r['dataset'], []).append(r)
+        elif a.history:
+            issues.append(f'history file not found: {a.history}')
+        for d in a.compare:
+            f = d.expanduser() / 'results.csv'
+            if f.is_file():
+                prev = load_results(f)
+                for name in {r['dataset'] for r in prev}:
+                    groups[name] = [r for r in prev if r['dataset'] == name]
+            else:
+                issues.append(f'--compare {d}: no results.csv')
+        groups[dataset] = [dict(r) for r in rows]
+        combined, notes = [], []
+        for name, rs in groups.items():
+            for r in rs:
+                if r['run'] in excluded:
+                    notes.append((name, r['run'], 'excluded', 'left out of summary and comparison plots'))
+                    continue
+                for key in ('optical_flags', 'v50_flags'):
+                    if r.get(key):
+                        notes.append((name, r['run'], 'provisional', f"{key.split('_')[0]}: {r[key]}"))
+                if r.get('v_over_p') is None:
+                    notes.append((name, r['run'], 'missing V/P', 'not on physics plots'))
+                combined.append(r)
+        paper = None if a.no_paper or not a.paper_overlay.is_file() else a.paper_overlay
+        if paper is None and not a.no_paper:
+            issues.append(f'paper overlay image not found: {a.paper_overlay}')
+        comparison_plots(combined, out / 'comparisons', paper, warnings, notes,
+                         summary_dataset=dataset if a.share_summary_plots else None)
+        with (out / 'comparisons' / 'notes.csv').open('w', newline='') as f:
+            w = csv.writer(f)
+            w.writerow(['dataset', 'run', 'category', 'detail'])
+            w.writerows(sorted(notes, key=lambda n: (natural_key(n[0]), natural_key(n[1]))))
 
     (out / 'warnings.txt').write_text('\n'.join(warnings) + '\n' if warnings else 'No warnings.\n')
     (out / 'status.txt').write_text('\n'.join(issues) + '\n' if issues else 'No missing or failed inputs.\n')
     (out / 'README.txt').write_text(README.format(src=src, dataset=dataset, kind=kind,
                                     excluded=', '.join(sorted(excluded)) or 'none',
-                                    rms=a.rms_flag_percent, v50=V50_METHOD))
+                                    rms=a.rms_flag_percent, v50=V50_METHOD,
+                                    comparison_help=(
+                                        'Use scripts/compare-optical-results.py to compare selected exports.'
+                                        if a.no_comparisons else
+                                        'comparisons/            Physics comparisons and optional Figure 26 overlay.'
+                                    )))
 
     n_opt = sum(r.get('optical') is not None for r in rows)
     n_v50 = sum(r.get('v50') is not None for r in rows)
