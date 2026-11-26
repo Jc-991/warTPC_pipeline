@@ -239,17 +239,18 @@ def plot_projection_distributions(source, destination, run, *, phase=None):
     title = f'{run} {phase} spark removal' if phase else run
     for axis in ('X', 'Y'):
         fits = [row for row in rows if row['axis'] == axis]
-        for metric, column in (
-            (f'{axis}_mean', 'mean_pixel'),
-            (f'{axis}_RMS', 'rms_pixel'),
+        for metric, column, quantity in (
+            (f'{axis}_mean', 'mean_pixel', 'mean position'),
+            (f'{axis}_RMS', 'rms_pixel', 'positional RMS'),
         ):
             values = [value for fit in fits if (value := num(fit[column])) is not None]
             if not values:
                 continue
             fig, ax = plt.subplots(figsize=(7, 4.5))
             _, edges, _ = ax.hist(values, bins='auto', color=COLORS[0], edgecolor='white')
-            ax.set_title(f'{title} · {len(values)} of {len(fits)} fit settings')
+            ax.set_title(f'Distribution of {axis} {quantity} across background fits\n{title}')
             ax.set_xlabel(YLABEL[metric])
+            ax.set_xlim(left=0)
             ax.set_ylabel('Fit settings per bin')
             ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
             add_fit_distribution_stats(ax, values, edges)
@@ -272,8 +273,9 @@ def plot_background_distribution(rows, destination, title):
     _, edges, _ = ax.hist(list(by_axis.values()), bins=np.histogram_bin_edges(values, bins=20),
                          stacked=True, color=['blue', 'red'], edgecolor='white',
                          label=[f'{axis} ({len(group)})' for axis, group in by_axis.items()])
-    ax.set_title(f'{title} · {len(values)} fit settings')
+    ax.set_title(f'Distribution of normalized optical background across X and Y fits\n{title}')
     ax.set_xlabel(r'$B_O^{\mathrm{norm}}$ (ms/s)')
+    ax.set_xlim(left=0)
     ax.set_ylabel('Fit settings per bin')
     ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
     ax.legend(loc='upper left', bbox_to_anchor=(1.02, 0.62))
