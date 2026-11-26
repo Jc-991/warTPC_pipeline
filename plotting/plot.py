@@ -498,6 +498,8 @@ def summary_plots(rows, dataset, kind, folder, warnings, metrics=None):
                 ax.set_ylabel(YLABEL[metric])
                 if metric in POSITION_METRICS:
                     ax.set_ylim(0, 256)
+                elif metric == "S_O_over_B_O_ratio":
+                    ax.set_ylim(bottom=0)
                 legend(ax, [(dataset, COLORS[0], kind)] if pts else [], any(p[3] for p in pts))
                 fig.tight_layout()
                 fig.savefig(folder / f'{metric}_{mode}_{scale}.png', dpi=150)
@@ -549,6 +551,8 @@ def comparison_plots(rows, folder, paper, warnings, notes, metrics=None, *, summ
         ax.set_ylabel(YLABEL[metric])
         if metric in POSITION_METRICS:
             ax.set_ylim(0, 256)
+        elif metric == "S_O_over_B_O_ratio":
+            ax.set_ylim(bottom=0)
         legend(ax, entries, any(p[3] for p in allpts))
         fig.tight_layout()
         if metric in SPARK_METRICS and len(entries) == 1:
