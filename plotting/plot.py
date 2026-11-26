@@ -216,9 +216,27 @@ def projection_values(row):
     return values
 
 
-def plot_projection_distributions(source, destination, run):
+def add_fit_distribution_stats(ax, values, edges):
+    entries = np.asarray(values)
+    mean = np.mean(entries)
+    rms = np.std(entries)
+    relative = f'{100 * rms / abs(mean):.1f}%' if mean else 'N/A'
+    lines = (
+        f'Entries = {entries.size}',
+        f'Mean = {mean:.4g}',
+        f'RMS = {rms:.4g}',
+        f'Percent = {relative}',
+        f'Underflow = {np.count_nonzero(entries < edges[0])}',
+        f'Overflow = {np.count_nonzero(entries > edges[-1])}',
+    )
+    ax.text(1.03, 0.98, '\n'.join(lines), transform=ax.transAxes, va='top',
+            fontsize=9, bbox=dict(facecolor='white', edgecolor='black', boxstyle='square'))
+
+
+def plot_projection_distributions(source, destination, run, *, phase=None):
     with source.open(newline='') as handle:
         rows = list(csv.DictReader(handle))
+    title = f'{run} {phase} spark removal' if phase else run
     for axis in ('X', 'Y'):
         fits = [row for row in rows if row['axis'] == axis]
         for metric, column in (
@@ -229,15 +247,16 @@ def plot_projection_distributions(source, destination, run):
             if not values:
                 continue
             fig, ax = plt.subplots(figsize=(7, 4.5))
-            ax.hist(values, bins='auto', color=COLORS[0], edgecolor='white')
-            ax.set_title(f'{run} · {len(values)} of {len(fits)} fit settings')
+            _, edges, _ = ax.hist(values, bins='auto', color=COLORS[0], edgecolor='white')
+            ax.set_title(f'{title} · {len(values)} of {len(fits)} fit settings')
             ax.set_xlabel(YLABEL[metric])
             ax.set_ylabel('Fit settings per bin')
             ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
+            add_fit_distribution_stats(ax, values, edges)
             fig.tight_layout()
             fig.savefig(destination / f'{run}_{metric}_fit_distribution.png', dpi=150)
             plt.close(fig)
-    plot_background_distribution(rows, destination / f'{run}_B_O_norm_fit_distribution.png', run)
+    plot_background_distribution(rows, destination / f'{run}_B_O_norm_fit_distribution.png', title)
 
 
 def plot_background_distribution(rows, destination, title):
@@ -250,14 +269,15 @@ def plot_background_distribution(rows, destination, title):
     if not values:
         return
     fig, ax = plt.subplots(figsize=(7, 4.5))
-    ax.hist(list(by_axis.values()), bins=np.histogram_bin_edges(values, bins=20),
-            stacked=True, color=['blue', 'red'], edgecolor='white',
-            label=[f'{axis} ({len(group)})' for axis, group in by_axis.items()])
+    _, edges, _ = ax.hist(list(by_axis.values()), bins=np.histogram_bin_edges(values, bins=20),
+                         stacked=True, color=['blue', 'red'], edgecolor='white',
+                         label=[f'{axis} ({len(group)})' for axis, group in by_axis.items()])
     ax.set_title(f'{title} · {len(values)} fit settings')
     ax.set_xlabel(r'$B_O^{\mathrm{norm}}$ (ms/s)')
     ax.set_ylabel('Fit settings per bin')
     ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
-    ax.legend()
+    ax.legend(loc='upper left', bbox_to_anchor=(1.02, 0.62))
+    add_fit_distribution_stats(ax, values, edges)
     fig.tight_layout()
     fig.savefig(destination, dpi=150)
     plt.close(fig)
