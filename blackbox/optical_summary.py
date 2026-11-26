@@ -41,6 +41,7 @@ TEXT_COLUMNS = (
     ("B_O_RMS_ms", "B_O_RMS_ms"),
     *((key, key) for key in BACKGROUND_NORMALIZED_COLUMNS),
     ("S_O_over_B_O_ratio", "S_O_over_B_O_ratio"),
+    ("S_O_over_B_O_ratio_err", "S_O_over_B_O_ratio_err"),
     *((key, key) for key in ("B_X", "B_Y", "B_X_norm", "B_Y_norm")),
     *((key, key) for key in ("X_mean", "X_RMS", "Y_mean", "Y_RMS")),
 )
@@ -113,6 +114,15 @@ def signal_to_background(row):
     return number(signal / background) if signal is not None and background else None
 
 
+def signal_to_background_error(row):
+    ratio = signal_to_background(row)
+    signal_fraction = number(row.get("S_O_error_fraction"))
+    background_fraction = absolute_fraction(number(row.get("B_O_RMS_ms")), number(row.get("B_O_ms")))
+    if None in (ratio, signal_fraction, background_fraction):
+        return number(row.get("S_O_over_B_O_ratio_err"))
+    return number(abs(ratio) * math.hypot(signal_fraction, background_fraction))
+
+
 def background_normalized(row):
     mean, rms, exposure = (number(row.get(key)) for key in
                            ("B_O_ms", "B_O_RMS_ms", "exposure_after_s"))
@@ -125,7 +135,8 @@ def background_normalized(row):
 
 def write_text_summary(path, row):
     row = dict(row)
-    row.update(S_O_over_B_O_ratio=signal_to_background(row), **background_normalized(row))
+    row.update(S_O_over_B_O_ratio=signal_to_background(row),
+               S_O_over_B_O_ratio_err=signal_to_background_error(row), **background_normalized(row))
     unit = row.get("projection_position_unit")
     labels = [projection_label(key, unit) if key in PROJECTION_COLUMNS else label
               for label, key in TEXT_COLUMNS]
@@ -170,7 +181,10 @@ def read_projection_observables(path):
         result[key] = number(row.get(label, row.get(old_label, row.get(key))))
     for key in VARIATION_SUMMARY_COLUMNS:
         result[key] = fit_mean((row.get(key) or "").split(","))
-    result["S_O_over_B_O_ratio"] = signal_to_background(dict(result, S_O_ms=row.get("S_O_ms")))
+    ratio_values = dict(result, S_O_ms=row.get("S_O_ms"), S_O_error_fraction=row.get("S_O_error_fraction"),
+                        S_O_over_B_O_ratio_err=row.get("S_O_over_B_O_ratio_err"))
+    result["S_O_over_B_O_ratio"] = signal_to_background(ratio_values)
+    result["S_O_over_B_O_ratio_err"] = signal_to_background_error(ratio_values)
     for axis in ("X", "Y"):
         if result[f"A_{axis}"] is None:
             result[f"A_{axis}"] = result["A"]

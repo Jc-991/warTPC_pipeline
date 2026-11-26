@@ -58,7 +58,7 @@ YLABEL.update(PROJECTION_METRICS)
 YLABEL['S_O_over_B_O_ratio'] = r'$S_O/B_O$ (dimensionless)'
 SPARK_METRICS = ('number_of_sparks', 'fraction_of_removed_exposure')
 OPTIONAL_METRICS = (*SPARK_METRICS, "X_mean", "Y_mean", "B_O_norm", "S_O_over_B_O_ratio")
-OPTICAL_RMS_FIELDS = ("X_mean_err", "Y_mean_err", "B_O_norm_err")
+OPTICAL_RMS_FIELDS = ("X_mean_err", "Y_mean_err", "B_O_norm_err", "S_O_over_B_O_ratio_err")
 VP_LABEL = r'$V_{43+21}/P$ (kV bar$^{-1}$)'
 # PLOT_GUIDE: hollow squares for pressure runs, solid circles for voltage runs.
 MARKER = {'pressure': ('s', False), 'voltage': ('o', True), 'unknown': ('D', True)}
@@ -214,6 +214,7 @@ def projection_values(row):
         "B_O_norm": num(row.get("B_O_norm_ms_per_s", row.get("B_O_norm"))),
         "B_O_norm_err": num(row.get("B_O_norm_RMS_ms_per_s", row.get("B_O_norm_err"))),
         "S_O_over_B_O_ratio": num(row.get("S_O_over_B_O_ratio")),
+        "S_O_over_B_O_ratio_err": num(row.get("S_O_over_B_O_ratio_err")),
     }
     if 'X_mean_pixel' in row or row.get('projection_position_unit') == 'pixel':
         for axis in ('X', 'Y'):
@@ -258,6 +259,7 @@ def plot_projection_distributions(source, destination, run, *, phase=None):
             _, edges, _ = ax.hist(values, bins='auto', color=COLORS[0], edgecolor='white')
             ax.set_title(f'Distribution of {axis} {quantity} across background fits\n{title}')
             ax.set_xlabel(YLABEL[metric])
+            ax.set_xlim(0, 256)
             ax.set_ylabel('Fit settings per bin')
             ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
             add_fit_distribution_stats(ax, values, edges)
@@ -494,6 +496,8 @@ def summary_plots(rows, dataset, kind, folder, warnings, metrics=None):
                 else:
                     ax.set_xlabel(VP_LABEL)
                 ax.set_ylabel(YLABEL[metric])
+                if metric in POSITION_METRICS:
+                    ax.set_ylim(0, 256)
                 legend(ax, [(dataset, COLORS[0], kind)] if pts else [], any(p[3] for p in pts))
                 fig.tight_layout()
                 fig.savefig(folder / f'{metric}_{mode}_{scale}.png', dpi=150)
@@ -543,6 +547,8 @@ def comparison_plots(rows, folder, paper, warnings, notes, metrics=None, *, summ
                             + ', '.join(f"{used_all[i]['dataset']}/{used_all[i]['run']}" for i in clipped))
         ax.set_xlabel(VP_LABEL)
         ax.set_ylabel(YLABEL[metric])
+        if metric in POSITION_METRICS:
+            ax.set_ylim(0, 256)
         legend(ax, entries, any(p[3] for p in allpts))
         fig.tight_layout()
         if metric in SPARK_METRICS and len(entries) == 1:

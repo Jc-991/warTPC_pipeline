@@ -29,7 +29,7 @@ SUMMARY_COLUMNS = (
     "S_O_norm_rms_ms_per_s", "S_O_error_in_percentage",
     "percentage_of_removed_exposure", "fraction_of_removed_exposure", "S_O_error_fraction",
     *CONDITION_COLUMNS, *PROJECTION_COLUMNS, *VARIATION_SUMMARY_COLUMNS, *BACKGROUND_NORMALIZED_COLUMNS,
-    "S_O_over_B_O_ratio", "projection_position_unit", "issues",
+    "S_O_over_B_O_ratio", "S_O_over_B_O_ratio_err", "projection_position_unit", "issues",
 )
 def write_csv(path, fields, rows):
     with path.open("w", newline="") as handle:

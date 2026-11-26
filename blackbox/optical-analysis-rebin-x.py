@@ -183,6 +183,8 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
     if SAVE_SIGNAL_PLOTS or (save_standard_plot and axis == 0):
         tot = plt.figure(figsize=(10,10))
         plt.imshow(perChipTOT)
+        plt.xlim(0, 256)
+        plt.ylim(256, 0)
         plt.tick_params(axis='both', which='major', labelsize=20)
         plt.xlabel('X Pixel', fontsize=25)
         plt.ylabel('Y Pixel', fontsize=25)
@@ -280,6 +282,7 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
             full_data_sig3.SetTitle("Full Data with Upper Sideband Between "+str(signal_sig)+"#sigma and "+str(sideband_sig)+"#sigma;X Pixel;ToT (ms)")
         if axis == 1:
             full_data_sig3.SetTitle("Full Data with Upper Sideband Between "+str(signal_sig)+"#sigma and "+str(sideband_sig)+"#sigma;Y Pixel;ToT (ms)")
+        full_data_sig3.GetXaxis().SetLimits(0, 256)
         full_data_sig3.GetYaxis().SetRangeUser(0,1.1*max(ycomp_3sig));
         full_data_sig3.SetMarkerStyle(8)
         full_data_sig3.SetMarkerSize(1.3)
@@ -358,7 +361,7 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
         signal3 = ROOT.TGraphErrors(len(sig3_full_bins), sig3_full_bins, sig3_full,0,sig3_full_err)
 
         canvas_signal3 = ROOT.TCanvas("c4", "TGraph Example", 800, 600)
-        signal3.SetTitle("Background Subtracted Signal with "+str(signal_sig)+"#sigma and "+str(sideband_sig)+"#sigma upper sideband;X Pixel;ToT (ms)")
+        signal3.SetTitle("Background Subtracted Signal with "+str(signal_sig)+"#sigma and "+str(sideband_sig)+f"#sigma upper sideband;{axis_name} Pixel;ToT (ms)")
         signal3.SetMarkerStyle(8)
         signal3.SetMarkerSize(1.3)
         signal3.SetMarkerColor(2)
@@ -367,6 +370,7 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
         margin = 0.1 * max(abs(minimum), abs(maximum)) or 1.0
         lower, upper = minimum - margin, maximum + margin
         signal3.GetYaxis().SetRangeUser(lower, upper)
+        signal3.GetXaxis().SetLimits(0, 256)
         signal3.Draw("APE")
 
         latex_fit2 = ROOT.TLatex()
