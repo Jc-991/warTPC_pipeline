@@ -209,9 +209,9 @@ def spark_values(summary):
 
 def projection_values(row):
     # Earlier exports used these four names for moments of ToT amplitudes.
-    values = {key: num(row.get(f'{key}_ms_per_s', row.get(key)))
+    values = {key: num(row.get(f'B_O_{key[2:]}_ms_per_s', row.get(f'{key}_ms_per_s', row.get(key))))
               for key in PROJECTION_METRICS if key not in POSITION_METRICS}
-    if row.get('projection_position_unit') == 'pixel':
+    if 'X_mean_pixel' in row or row.get('projection_position_unit') == 'pixel':
         values.update({key: num(row.get(f'{key}_pixel', row.get(key))) for key in POSITION_METRICS})
     return values
 
@@ -325,7 +325,8 @@ def analyse_runs(src, out, rms_limit, warnings, issues):
             try:
                 summary = read_spark_summary(spark_summary)
                 r.update(projection_values(summary))
-                r['projection_position_unit'] = summary.get('projection_position_unit')
+                if any(key in r for key in POSITION_METRICS):
+                    r['projection_position_unit'] = 'pixel'
                 if spark_report.is_file() and spark_report.read_text().splitlines()[:1] in (
                     ['Mode: remove'], ['Mode: detect']
                 ):

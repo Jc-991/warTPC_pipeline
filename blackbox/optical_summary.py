@@ -2,6 +2,7 @@
 
 import csv
 import math
+from statistics import fmean
 from pathlib import Path
 
 
@@ -18,24 +19,26 @@ TEXT_COLUMNS = (
     ("runID", "run"),
     ("settings_id", "settings_id"),
     ("id_mismatch", "id_mismatch"),
+    ("unavailable", "unavailable"),
     *((f"V{index}_V", f"V{index}") for index in range(5)),
     ("pressure_mbar", "pressure_mbar"),
     ("methane_fraction", "methane_fraction"),
-    ("exposure_time_s", "exposure_time"),
     ("v_over_p_kVbar-1", "v_over_p"),
-    ("unavailable", "unavailable"),
     ("original_exposure_s", "exposure_before_s"),
+    ("exposure_time_s", "exposure_time"),
     ("number_of_sparks", "spark_count"),
     ("number_of_sparkAlgo_iterations", "spark_algorithm_iterations"),
     ("total_spark_exposure_removed_s", "exposure_excluded_s"),
     ("fraction_of_removed_exposure", "fraction_of_removed_exposure"),
     ("exposure_after_spark_removal_s", "exposure_after_s"),
+    *((key, key) for key in ("A", "A_X", "A_Y")),
     ("S_O_ms", "S_O_ms"),
     ("S_O^norm_ms_per_s", "S_O_norm_ms_per_s"),
     ("S_O_error_fraction", "S_O_error_fraction"),
-    *((key, key) for key in PROJECTION_COLUMNS),
-    ("projection_position_unit", "projection_position_unit"),
-    *((key, key) for key in VARIATION_SUMMARY_COLUMNS),
+    *((key, key) for key in ("S_O_X_ms", "S_O_Y_ms")),
+    ("B_O_ms", "B_O_ms"),
+    *((key, key) for key in ("B_X", "B_Y", "B_X_norm", "B_Y_norm")),
+    *((key, key) for key in ("X_mean", "X_RMS", "Y_mean", "Y_RMS")),
 )
 
 
@@ -95,6 +98,9 @@ def projection_label(key, position_unit):
         unit = "pixel" if position_unit == "pixel" else "ms"
     else:
         unit = "ms_per_s" if key.endswith("_norm") else "ms"
+    if key.startswith(("A", "B")):
+        family, _, suffix = key.partition("_")
+        key = "_".join(part for part in (family, "O", suffix) if part)
     return f"{key}_{unit}"
 
 
@@ -119,9 +125,9 @@ def write_text_summary(path, row):
             handle.write("X/Y mean and RMS are in pixels, weighted by positive residual ToT.\n")
         else:
             handle.write("X/Y mean and RMS use residual ToT (ms).\n")
-        handle.write("B_X_norm and B_Y_norm use ms/s.\n")
-        handle.write("A = A_X = A_Y. A and B_X/B_Y are summed ToT (ms).\n")
-        handle.write("Variation lists follow the fit CSV row order. S_O lists select one axis.\n")
+        handle.write("B_O_X_norm_ms_per_s and B_O_Y_norm_ms_per_s are exposure-normalized.\n")
+        handle.write("A_O_ms = A_O_X_ms = A_O_Y_ms.\n")
+        handle.write("S_O_X_ms, S_O_Y_ms and B_O_ms are means across fit settings.\n")
         handle.write("Absolute fractions: 1 = 100%.\n\n")
         for label, value in zip(labels, values):
             if value is None or value == "":
@@ -135,14 +141,18 @@ def read_projection_observables(path):
             row = next(csv.DictReader(handle, delimiter="\t"))
     except (FileNotFoundError, StopIteration):
         return {}
-    unit = row.get("projection_position_unit")
-    result = {key: number(row.get(projection_label(key, unit), row.get(key)))
-              for key in PROJECTION_COLUMNS}
-    result.update({key: row.get(key) for key in VARIATION_SUMMARY_COLUMNS})
+    unit = "pixel" if "X_mean_pixel" in row else row.get("projection_position_unit")
+    result = {}
+    for key in PROJECTION_COLUMNS:
+        label = projection_label(key, unit)
+        old_label = label.replace("A_O_", "A_", 1).replace("B_O_", "B_", 1)
+        result[key] = number(row.get(label, row.get(old_label, row.get(key))))
+    for key in VARIATION_SUMMARY_COLUMNS:
+        result[key] = fit_mean((row.get(key) or "").split(","))
     for axis in ("X", "Y"):
         if result[f"A_{axis}"] is None:
             result[f"A_{axis}"] = result["A"]
-    result["projection_position_unit"] = row.get("projection_position_unit")
+    result["projection_position_unit"] = unit
     exposure = number(row.get("exposure_after_spark_removal_s"))
     if exposure is not None and exposure > 0:
         for key in ("B_X", "B_Y"):
@@ -169,13 +179,17 @@ def projection_variation(axis, degree, signal_sigma, sideband_sigma, positions, 
                 background_ms=background_ms)
 
 
+def fit_mean(values):
+    finite = [value for item in values if (value := number(item)) is not None]
+    return fmean(finite) if finite else None
+
+
 def variation_summary(variations):
     return {
-        "S_O_X_ms": ", ".join(f'{fit["signal_ms"]:.12g}' for fit in variations if fit["axis"] == "X"),
-        "S_O_Y_ms": ", ".join(f'{fit["signal_ms"]:.12g}' for fit in variations if fit["axis"] == "Y"),
-        "B_O_ms": ", ".join(f'{fit["background_ms"]:.12g}' for fit in variations),
+        "S_O_X_ms": fit_mean(fit["signal_ms"] for fit in variations if fit["axis"] == "X"),
+        "S_O_Y_ms": fit_mean(fit["signal_ms"] for fit in variations if fit["axis"] == "Y"),
+        "B_O_ms": fit_mean(fit["background_ms"] for fit in variations),
     }
-
 
 def write_optical_summary(run_dir, projection_observables, variations):
     with (Path(run_dir) / "diagnostics" / VARIATION_FILE).open("w", newline="") as handle:
