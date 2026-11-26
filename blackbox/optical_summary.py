@@ -9,6 +9,7 @@ CONDITION_COLUMNS = (
     "settings_id", "id_mismatch", "V0", "V1", "V2", "V3", "V4",
     "pressure_mbar", "methane_fraction", "exposure_time", "v_over_p", "unavailable",
 )
+PROJECTION_COLUMNS = ("X_mean", "X_RMS", "Y_mean", "Y_RMS", "B_X_norm", "B_Y_norm")
 TEXT_COLUMNS = (
     ("runID", "run"),
     ("settings_id", "settings_id"),
@@ -28,6 +29,7 @@ TEXT_COLUMNS = (
     ("S_O_ms", "S_O_ms"),
     ("S_O^norm_ms_per_s", "S_O_norm_ms_per_s"),
     ("S_O_error_fraction", "S_O_error_fraction"),
+    *((key, key) for key in PROJECTION_COLUMNS),
 )
 
 
@@ -97,6 +99,7 @@ def write_text_summary(path, row):
     readable = path.with_name(f"{path.stem}_readable{path.suffix}")
     with readable.open("w") as handle:
         handle.write("S_O^norm_ms_per_s = S_O_ms / exposure_after_spark_removal_s\n")
+        handle.write("X/Y mean and RMS use residual ToT (ms); B_X_norm and B_Y_norm use ms/s.\n")
         handle.write("Absolute fractions: 1 = 100%.\n\n")
         for label, value in zip(labels, values):
             if value is None or value == "":
@@ -104,7 +107,16 @@ def write_text_summary(path, row):
             handle.write(f"{label:<{width}}  {value}\n")
 
 
-def write_optical_summary(run_dir):
+def read_projection_observables(path):
+    try:
+        with path.open(newline="") as handle:
+            row = next(csv.DictReader(handle, delimiter="\t"))
+    except (FileNotFoundError, StopIteration):
+        return {}
+    return {key: number(row.get(key)) for key in PROJECTION_COLUMNS}
+
+
+def write_optical_summary(run_dir, projection_observables):
     run_dir = Path(run_dir)
     row = read_optical_values(run_dir, run_dir.name)
     status = dict(
@@ -114,4 +126,5 @@ def write_optical_summary(run_dir):
     )
     row.update(run=run_dir.name, spark_count=status["Spark count"],
                spark_algorithm_iterations=status["Spark algorithm iterations"])
+    row.update(projection_observables)
     write_text_summary(run_dir / "run_summary.txt", row)

@@ -368,6 +368,9 @@ def x_positions(n):
 tot_y_collapse = np.ascontiguousarray(np.sum(perChipTOT[:,:], axis=1),dtype=np.float64)/1E6
 hit_y_collapse = np.sum(perChipHIT[:,:], axis=1)
 
+projection_observables = {}
+
+
 def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideband_sig,twoD_Gaussian,perChipTOT,order,directory,axis,res_folder,exposure,spa_cut):
 
     folder=path+"/"+directory+"/"+res_folder+"/"+str(poly_type)+"/"+str(signal_sig)+"to"+str(sideband_sig)
@@ -533,7 +536,17 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
         bkg_est=dat_fit_sig3.Eval(sig3_full_bins[yy])#var0+var1*sig3_full_bins[yy]+var2*sig3_full_bins[yy]**2+var3*sig3_full_bins[yy]**3#+var4*sig3_full_bins[yy]
         sig3_full[yy]=sig3_full[yy]-bkg_est
     
-    ADU3=sum(sig3_full)/exposure
+    integral = sum(sig3_full)
+    ADU3 = integral / exposure
+
+    if save_standard_plot:
+        axis_name = "X" if axis == 0 else "Y"
+        total_tot_ms = perChipTOT.sum() / 1e6
+        projection_observables.update({
+            f"{axis_name}_mean": float(np.mean(sig3_full)),
+            f"{axis_name}_RMS": float(np.std(sig3_full)),
+            f"B_{axis_name}_norm": float((total_tot_ms - integral) / exposure),
+        })
 
     #print(sum(sig3_full))
     #print(exposure)
@@ -1048,7 +1061,7 @@ sig_out = pd.DataFrame([[ID],[pres],[FC],[E1],[E2],[E3],[E4],[purity],[mean_tot]
 inspect = pd.DataFrame([[f"{ID} Mean = {mean_round} RMS = {rms_round} ({round(percent,1)}%). Analysis performed at {now}"]])
 
 sig_out.T.to_csv(f"{path}/{directory}/integral.csv", mode="w", index=False, header=False)
-write_optical_summary(f"{path}/{directory}")
+write_optical_summary(f"{path}/{directory}", projection_observables)
 inspect.T.to_csv(f"{path}/{directory}/integral-inspect.csv", mode="w", index=False, header=False)
 
 sig_out.T.to_csv(f"{path}/results/signals.csv", mode="a", index=False, header=False)

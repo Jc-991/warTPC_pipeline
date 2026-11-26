@@ -9,7 +9,10 @@ import shutil
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "blackbox"))
-from optical_summary import CONDITION_COLUMNS, read_optical_values, write_text_summary
+from optical_summary import (
+    CONDITION_COLUMNS, PROJECTION_COLUMNS, read_optical_values,
+    read_projection_observables, write_text_summary,
+)
 
 RUNS = tuple(f"vr22-{number:02d}" for number in range(6, 14))
 PAIRED_PLOTS = (
@@ -23,7 +26,7 @@ SUMMARY_COLUMNS = (
     "run", "spark_count", "spark_algorithm_iterations", "removal_applied", "exposure_before_s",
     "exposure_after_s", "exposure_excluded_s", "S_O_ms", "S_O_norm_ms_per_s",
     "S_O_norm_rms_ms_per_s", "S_O_error_in_percentage",
-    "percentage_of_removed_exposure", *CONDITION_COLUMNS, "issues",
+    "percentage_of_removed_exposure", *CONDITION_COLUMNS, *PROJECTION_COLUMNS, "issues",
 )
 def write_csv(path, fields, rows):
     with path.open("w", newline="") as handle:
@@ -113,6 +116,7 @@ def main():
             issues.append(f"spark report: {error}")
         try:
             row.update(read_optical_values(cleaned, run))
+            row.update(read_projection_observables(cleaned / "run_summary.txt"))
         except (OSError, ValueError, IndexError, StopIteration) as error:
             issues.append(f"optical integral unavailable: {error}")
 
