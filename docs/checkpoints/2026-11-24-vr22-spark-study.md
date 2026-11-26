@@ -1,8 +1,39 @@
 # VR22 optical spark study checkpoint
 
-24 November 2026
+Started 24 November 2026. Updated 26 November 2026.
 
-The spark-removal trial for `vr22-07` is complete. The pipeline exports the pre-tagging ToT-versus-time spectrum and the four classic optical plots. The eight-run Hammer batch finished, and the report flagged missing X-projection pairs for `vr22-11` through `vr22-13`. The comparison will address whether the double structure in the X projection persists after the cut.
+## Current workflow
+
+- Before and after fits use the same X binning. X rebinning defaults to off.
+- Time zero is the first stored hit. Matt’s original exposure convention is `(toa[-1] - toa[0]) / 1e13` seconds. The ToT-versus-time plot uses the same origin and scale as spark grouping, with 10 ms bins for the background colours.
+- The cut uses **5 ms of detector time** per window. It sums ToT in each occupied window, flags sums strictly above the grouped mean plus 10 standard deviations, and removes all hits in those windows. The summary counts flagged windows and subtracts their overlap with the run from exposure. The HDF5 retains the original hits.
+- A complete per-run export contains nine PNGs and two text summaries. The plots include before/after X and Y projections and combined integral distributions, the after-cut 2D ToT image, the grouped ToT histogram, and the arrival-time plot with removed hits marked. With an incomplete export the workflow publishes available pairs and retains the work directory.
+- `run_summary.txt` has a tab-separated header and one data row. `run_summary_readable.txt` shows one field per line. Both use seconds for exposure and absolute decimal fractions for removed exposure and relative optical RMS, where 1 = 100%.
+- Spark count and removed-exposure fraction each have a streaming plot by run order, a physics plot against V/P, and a dataset overlay. The VR22 overlay has one series because the reference data has no spark measurements.
+
+## Latest full Hammer run
+
+Results are under `~/warTPC/results/full-vr22-optical-2/voltage-run-22-11-2026_results/`. The Desktop export is at `~/Desktop/VR22 optical results/full-vr22-optical-2/plots/`. Verified both before and after X/Y projections for runs 01–10, after projections for runs 11–13, and all six spark-observable plots in the Desktop export.
+
+- Run 13 decoded successfully in both passes. The uncut Gaussian fit returned a width larger than half the chip. Sideband diagnostics flagged all 20 axis/setting combinations, and ROOT rejected an argument during the fourth-degree X fit at 3–7 sigma. The before pass produced no `integral.csv` or paired fit plots.
+- The run 13 after-cut fit completed after removal of 16 flagged windows. Its after projections and combined integral distribution are present.
+- The retained before-pass diagnostics are under `.spark-work.LxpEDY/before/optical/vr22-13/diagnostics/` relative to the latest Hammer results. The cause of the missing before fits for runs 11 and 12 has not been confirmed.
+- A previous two-run validation with Matt’s timing flagged one 5 ms window for run 6, lowering exposure from 99.9959023781 s to 99.9909023781 s. Its removed-exposure fraction was about 0.000050002.
+
+The open analysis question is whether the double structure in the X projection persists after the cut. Evaluate it for the runs with valid pairs and investigate the missing before-cut fits separately.
+
+## Rerun on Hammer
+
+Run from the updated checkout in a compute allocation. Add `--runs vr22-06,vr22-07` to select only those two runs.
+
+```bash
+bash scripts/workflow.sh \
+  -i "$HOME/warTPC/data/voltage-run-22-11-2026" \
+  -o "$HOME/warTPC/results/full-vr22-optical-$(date +%Y%m%d-%H%M%S)" \
+  --run optical
+```
+
+Transfer the resulting `plots/` directory for the per-run plots and summaries, streaming and physics plots, and overlays. It contains no HDF5 files.
 
 ## Initial run 7 hit-rate trial
 
@@ -16,46 +47,9 @@ The spark-removal trial for `vr22-07` is complete. The pipeline exports the pre-
 | Exposure after removal | 163.56 s |
 | Exposure excluded | 26.4276245 s (13.9%) |
 
-These were hit-rate candidates from the earlier time-window cut. That cut used 10 ms bins, a local median, and margins of 10 ms before and 50 ms after flagged bins. The 351 intervals are distinct from the current high-ToT spark count.
+These were hit-rate candidates from the earlier time-window cut. That cut used 10 ms bins, a local median, and margins of 10 ms before and 50 ms after flagged bins. The 351 intervals are distinct from the current count of flagged 5 ms windows.
 
 The trial report is at `~/warTPC/results/vr22-07-spark-removed/voltage-run-22-11-2026_results/optical/vr22-07/diagnostics/spark_status.txt` on Hammer.
-
-## Pipeline and deliverables
-
-- `WARTPC_SPARK_MODE=off` keeps all hits. `detect` reports how many hits exceed the run's all-hit mean ToT + 10 RMS. `remove` masks only those individual hits before building the fit maps. Exposure stays unchanged and the HDF5 remains intact.
-- The spectrum plots per-hit ToT (Z) against arrival time since the first hit (t), with colour showing hit count. It uses all original hits before tagging. In `detect` and `remove` modes it is saved under `optical/<run>/diagnostics/` and copied into `plots/optical_per_run/<run>/`.
-- Each completed run’s summary includes the 2D ToT image, combined integral distribution, and the background-subtracted X and Y projections. Additional X/Y plots are opt-in with `WARTPC_SIGNAL_PLOTS=1`.
-- [The report script](../../scripts/report-vr22-sparks.py) packages ten figures per run, including separate before and after versions of the X projection, Y projection, and combined integral distribution.
-
-## Workflow checklist
-
-- [x] Write one `run_summary.txt` for each completed optical run. With plotting enabled, it appears at `plots/optical_per_run/<run>/run_summary.txt`. With `--no-plot`, it is available at `optical/<run>/run_summary.txt`.
-- [x] Include `S_O^norm = S_O / exposure_after_spark_removal` and the eight agreed columns for run ID, optical signal, original exposure, spark count, algorithm iterations, exposure removed, usable exposure, and normalized signal.
-- [x] Verify the workflow with two synthetic runs. Each plot folder received its own text summary.
-- [x] Package the actual `vr22-06` and `vr22-07` values into their separate Desktop summaries. The ToT cut used one pass and removed zero exposure from both runs. The spark count now matches the marked-up removed-hit count: 2 for run 6 and 0 for run 7.
-- [ ] Verify automatic text-summary output on Hammer after deploying the updated workflow.
-
-## Resume on Hammer
-
-Use the same X-rebin setting in both passes to isolate the spark cut. The commands below use the original X binning. Run from the updated pipeline checkout in a compute allocation.
-
-```bash
-source blackbox/setup_blackbox.sh
-dataset="$HOME/warTPC/data/voltage-run-22-11-2026"
-base="$HOME/warTPC/results/vr22-spark-study-tot10rms"
-runs="vr22-06,vr22-07,vr22-08,vr22-09,vr22-10,vr22-11,vr22-12,vr22-13"
-
-WARTPC_SPARK_MODE=off bash scripts/optical-analysis.sh \
-  "$dataset" "$base/before" --runs "$runs" --rebin-x off
-
-WARTPC_SPARK_MODE=remove bash scripts/optical-analysis.sh \
-  "$dataset" "$base/after" --runs "$runs" --rebin-x off
-
-python3 scripts/report-vr22-sparks.py \
-  "$base/before/voltage-run-22-11-2026_results" \
-  "$base/after/voltage-run-22-11-2026_results" \
-  "$base/report"
-```
 
 ## Initial eight-run hit-rate batch results
 
@@ -72,4 +66,4 @@ The after-removal batch reported eight runs. The report printed the following co
 | `vr22-12` | 323 | Before plot missing |
 | `vr22-13` | 466 | Before plot missing |
 
-The initial Hammer report is at `~/warTPC/results/vr22-spark-study/report/`. Its after-removal batch log is `after/voltage-run-22-11-2026_results/logs/optical-analysis_20261124-162148.log` under that study directory. The earlier burst-grouping counter reported 0, 4, 3, 5, 4, 9, 15, and 24 for runs 06–13 respectively. The current summary counts individual hits above the removal threshold.
+The initial Hammer report is at `~/warTPC/results/vr22-spark-study/report/`. Its after-removal batch log is `after/voltage-run-22-11-2026_results/logs/optical-analysis_20261124-162148.log` under that study directory. The earlier burst-grouping counter reported 0, 4, 3, 5, 4, 9, 15, and 24 for runs 06–13 respectively. A later per-hit ToT trial removed 2 hits from run 6 and 0 from run 7, with no exposure excluded. The experimental 5 µs grouped cut subsequently flagged 8 windows for run 6. These counts belong to different cuts.

@@ -242,6 +242,13 @@ if [[ -n "$spark_work" ]]; then
           for plot in "$paired/$run/"*_before.png "$paired/$run/"*_after.png; do
             [[ -f "$plot" ]] || continue
             cp -- "$plot" "$export_dir/$run/" || die "cannot publish $plot"
+            case ${plot##*/} in
+              x_projection_signal_after.png|combined_integral_distribution_after.png)
+                plot_name=${plot##*/}
+                rm -f -- "$export_dir/$run/${plot_name%_after.png}.png" \
+                  || die "cannot remove the duplicate plot for $run"
+                ;;
+            esac
           done
         done
         echo "Optical exports (available plots): $export_dir"
