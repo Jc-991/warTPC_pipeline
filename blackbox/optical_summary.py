@@ -9,7 +9,10 @@ CONDITION_COLUMNS = (
     "settings_id", "id_mismatch", "V0", "V1", "V2", "V3", "V4",
     "pressure_mbar", "methane_fraction", "exposure_time", "v_over_p", "unavailable",
 )
-PROJECTION_COLUMNS = ("X_mean", "X_RMS", "Y_mean", "Y_RMS", "B_X_norm", "B_Y_norm")
+VARIATION_FILE = "projection_variations.csv"
+VARIATION_COLUMNS = ("axis", "polynomial_degree", "signal_sigma", "sideband_sigma",
+                     "mean_pixel", "rms_pixel", "background_norm_ms_per_s")
+PROJECTION_COLUMNS = ("X_mean", "X_RMS", "Y_mean", "Y_RMS", "B_X_norm", "B_Y_norm", "A", "A_X", "A_Y", "B_X", "B_Y")
 TEXT_COLUMNS = (
     ("runID", "run"),
     ("settings_id", "settings_id"),
@@ -30,6 +33,7 @@ TEXT_COLUMNS = (
     ("S_O^norm_ms_per_s", "S_O_norm_ms_per_s"),
     ("S_O_error_fraction", "S_O_error_fraction"),
     *((key, key) for key in PROJECTION_COLUMNS),
+    ("projection_position_unit", "projection_position_unit"),
 )
 
 
@@ -99,7 +103,12 @@ def write_text_summary(path, row):
     readable = path.with_name(f"{path.stem}_readable{path.suffix}")
     with readable.open("w") as handle:
         handle.write("S_O^norm_ms_per_s = S_O_ms / exposure_after_spark_removal_s\n")
-        handle.write("X/Y mean and RMS use residual ToT (ms); B_X_norm and B_Y_norm use ms/s.\n")
+        if row.get("projection_position_unit") == "pixel":
+            handle.write("X/Y mean and RMS are in pixels, weighted by positive residual ToT.\n")
+        else:
+            handle.write("X/Y mean and RMS use residual ToT (ms).\n")
+        handle.write("B_X_norm and B_Y_norm use ms/s.\n")
+        handle.write("A = A_X = A_Y. A and B_X/B_Y are summed ToT (ms).\n")
         handle.write("Absolute fractions: 1 = 100%.\n\n")
         for label, value in zip(labels, values):
             if value is None or value == "":
@@ -113,10 +122,41 @@ def read_projection_observables(path):
             row = next(csv.DictReader(handle, delimiter="\t"))
     except (FileNotFoundError, StopIteration):
         return {}
-    return {key: number(row.get(key)) for key in PROJECTION_COLUMNS}
+    result = {key: number(row.get(key)) for key in PROJECTION_COLUMNS}
+    for axis in ("X", "Y"):
+        if result[f"A_{axis}"] is None:
+            result[f"A_{axis}"] = result["A"]
+    result["projection_position_unit"] = row.get("projection_position_unit")
+    exposure = number(row.get("exposure_after_spark_removal_s"))
+    if exposure is not None and exposure > 0:
+        for key in ("B_X", "B_Y"):
+            normalized = result[f"{key}_norm"]
+            if result[key] is None and normalized is not None:
+                result[key] = normalized * exposure
+    return result
 
 
-def write_optical_summary(run_dir, projection_observables):
+def projection_variation(axis, degree, signal_sigma, sideband_sigma, positions, residuals,
+                         background_norm):
+    """Use positive, background-subtracted ToT as the position weights."""
+    weights = [max(0.0, float(value)) for value in residuals]
+    total = math.fsum(weights)
+    mean = rms = None
+    if total > 0 and math.isfinite(total):
+        mean = math.fsum(x * weight for x, weight in zip(positions, weights)) / total
+        rms = math.sqrt(math.fsum(
+            weight * (x - mean) ** 2 for x, weight in zip(positions, weights)
+        ) / total)
+    return dict(axis=axis, polynomial_degree=degree, signal_sigma=signal_sigma,
+                sideband_sigma=sideband_sigma, mean_pixel=mean, rms_pixel=rms,
+                background_norm_ms_per_s=background_norm)
+
+
+def write_optical_summary(run_dir, projection_observables, variations):
+    with (Path(run_dir) / "diagnostics" / VARIATION_FILE).open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=VARIATION_COLUMNS)
+        writer.writeheader()
+        writer.writerows(variations)
     run_dir = Path(run_dir)
     row = read_optical_values(run_dir, run_dir.name)
     status = dict(
@@ -126,5 +166,6 @@ def write_optical_summary(run_dir, projection_observables):
     )
     row.update(run=run_dir.name, spark_count=status["Spark count"],
                spark_algorithm_iterations=status["Spark algorithm iterations"])
-    row.update(projection_observables)
+    row.update(projection_observables, projection_position_unit="pixel")
+    row.update(A_X=row.get("A"), A_Y=row.get("A"))
     write_text_summary(run_dir / "run_summary.txt", row)

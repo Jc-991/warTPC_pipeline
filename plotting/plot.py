@@ -47,13 +47,14 @@ YLABEL = {'optical': r'$S_O^{\mathrm{norm}}$ (ms s$^{-1}$)',
           'number_of_sparks': 'Number of flagged spark windows',
           'fraction_of_removed_exposure': 'Exposure removed (absolute fraction, 1 = 100%)'}
 PROJECTION_METRICS = {
-    'X_mean': 'X mean residual ToT (ms)',
-    'X_RMS': 'X RMS residual ToT (ms)',
-    'Y_mean': 'Y mean residual ToT (ms)',
-    'Y_RMS': 'Y RMS residual ToT (ms)',
-    'B_X_norm': 'X background / exposure (ms/s)',
-    'B_Y_norm': 'Y background / exposure (ms/s)',
+    'X_mean': r'$X_{\mathrm{mean}}$ — mean position (pixels)',
+    'X_RMS': r'$X_{\mathrm{RMS}}$ — positional RMS (pixels)',
+    'Y_mean': r'$Y_{\mathrm{mean}}$ — mean position (pixels)',
+    'Y_RMS': r'$Y_{\mathrm{RMS}}$ — positional RMS (pixels)',
+    'B_X_norm': r'$B_X^{\mathrm{norm}}$ — background ToT per exposure (ms/s)',
+    'B_Y_norm': r'$B_Y^{\mathrm{norm}}$ — background ToT per exposure (ms/s)',
 }
+POSITION_METRICS = ('X_mean', 'X_RMS', 'Y_mean', 'Y_RMS')
 YLABEL.update(PROJECTION_METRICS)
 SPARK_METRICS = ('number_of_sparks', 'fraction_of_removed_exposure')
 OPTIONAL_METRICS = (*SPARK_METRICS, *PROJECTION_METRICS)
@@ -206,6 +207,36 @@ def spark_values(summary):
                 fraction_of_removed_exposure=fraction)
 
 
+def projection_values(row):
+    # Earlier exports used these four names for moments of ToT amplitudes.
+    return {key: num(row.get(key)) for key in PROJECTION_METRICS
+            if key not in POSITION_METRICS or row.get('projection_position_unit') == 'pixel'}
+
+
+def plot_projection_distributions(source, destination, run):
+    with source.open(newline='') as handle:
+        rows = list(csv.DictReader(handle))
+    for axis in ('X', 'Y'):
+        fits = [row for row in rows if row['axis'] == axis]
+        for metric, column in (
+            (f'{axis}_mean', 'mean_pixel'),
+            (f'{axis}_RMS', 'rms_pixel'),
+            (f'B_{axis}_norm', 'background_norm_ms_per_s'),
+        ):
+            values = [value for fit in fits if (value := num(fit[column])) is not None]
+            if not values:
+                continue
+            fig, ax = plt.subplots(figsize=(7, 4.5))
+            ax.hist(values, bins='auto', color=COLORS[0], edgecolor='white')
+            ax.set_title(f'{run} · {len(values)} of {len(fits)} fit settings')
+            ax.set_xlabel(YLABEL[metric])
+            ax.set_ylabel('Fit settings per bin')
+            ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
+            fig.tight_layout()
+            fig.savefig(destination / f'{metric}_fit_distribution.png', dpi=150)
+            plt.close(fig)
+
+
 def exported_spark_rows(src, dataset, kind, excluded):
     rows = []
     for path in sorted((src / 'optical_per_run').glob('*/run_summary.txt'),
@@ -216,7 +247,7 @@ def exported_spark_rows(src, dataset, kind, excluded):
             rows.append(dict(run=run, dataset=dataset, kind=kind or infer_kind(dataset, [run]),
                              v_over_p=num(summary.get('v_over_p_kVbar-1')),
                              **spark_values(summary),
-                             **{key: num(summary.get(key)) for key in PROJECTION_METRICS}))
+                             **projection_values(summary)))
     return rows
 
 
@@ -247,7 +278,8 @@ def analyse_runs(src, out, rms_limit, warnings, issues):
         if spark_summary.is_file():
             try:
                 summary = read_spark_summary(spark_summary)
-                r.update({key: num(summary.get(key)) for key in PROJECTION_METRICS})
+                r.update(projection_values(summary))
+                r['projection_position_unit'] = summary.get('projection_position_unit')
                 if spark_report.is_file() and spark_report.read_text().splitlines()[:1] in (
                     ['Mode: remove'], ['Mode: detect']
                 ):
@@ -279,6 +311,12 @@ def analyse_runs(src, out, rms_limit, warnings, issues):
             for name in ('run_summary.txt', 'run_summary_readable.txt'):
                 if (opt / name).is_file():
                     shutil.copy2(opt / name, dst / name)
+            variations = opt / 'diagnostics' / 'projection_variations.csv'
+            if variations.is_file() and (opt / 'integral.csv').is_file():
+                distributions = dst / 'distributions'
+                distributions.mkdir(exist_ok=True)
+                shutil.copy2(variations, distributions / variations.name)
+                plot_projection_distributions(variations, distributions, run)
             for rel, name in OPTICAL_PER_RUN.items():
                 if (opt / rel).is_file():
                     shutil.copy2(opt / rel, dst / name)
@@ -414,7 +452,8 @@ def load_results(path, dataset=None):
     with path.open(newline='') as f:
         for row in csv.DictReader(f):
             r = {k: num(row.get(k)) for k in ('v_over_p', 'optical', 'optical_err', 'v50',
-                                              'v50_err', 'ratio', 'ratio_err', *OPTIONAL_METRICS)}
+                                              'v50_err', 'ratio', 'ratio_err', *SPARK_METRICS)}
+            r.update(projection_values(row))
             r['run'] = row.get('run', '')
             r['dataset'] = dataset or row.get('dataset', '')
             r['kind'] = row.get('kind') or infer_kind(r['dataset'], [r['run']])
@@ -507,7 +546,7 @@ def comparison_plots(rows, folder, paper, warnings, notes, metrics=None):
 # ---------------------------------------------------------------- tables / notes
 RESULT_FIELDS = ['dataset', 'kind', 'run', 'v_over_p', 'optical', 'optical_err', 'optical_rms_percent',
                  'optical_flags', 'v50', 'v50_err', 'v50_entries', 'v50_nonfinite', 'v50_outside_0_6000',
-                 'v50_flags', 'ratio', 'ratio_err', *OPTIONAL_METRICS, 'excluded']
+                 'v50_flags', 'ratio', 'ratio_err', *OPTIONAL_METRICS, 'projection_position_unit', 'excluded']
 CONDITION_FIELDS = ['run', 'settings_id', 'id_mismatch', 'V0', 'V1', 'V2', 'V3', 'V4', 'pressure_mbar',
                     'methane_fraction', 'exposure_time', 'v_over_p', 'unavailable']
 

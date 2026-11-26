@@ -243,13 +243,18 @@ if [[ -n "$spark_work" ]]; then
             [[ -f "$plot" ]] || continue
             cp -- "$plot" "$export_dir/$run/" || die "cannot publish $plot"
             case ${plot##*/} in
-              x_projection_signal_after.png|combined_integral_distribution_after.png)
+              x_projection_signal_after.png|y_projection_signal_after.png|combined_integral_distribution_after.png)
                 plot_name=${plot##*/}
                 rm -f -- "$export_dir/$run/${plot_name%_after.png}.png" \
                   || die "cannot remove the duplicate plot for $run"
                 ;;
             esac
           done
+          if [[ -d "$paired/$run/distributions" ]]; then
+            rm -rf -- "$export_dir/$run/distributions" &&
+              mv -- "$paired/$run/distributions" "$export_dir/$run/distributions" \
+                || die "cannot publish the fit distributions for $run"
+          fi
         done
         echo "Optical exports (available plots): $export_dir"
       fi

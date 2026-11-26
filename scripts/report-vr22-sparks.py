@@ -26,7 +26,8 @@ SUMMARY_COLUMNS = (
     "run", "spark_count", "spark_algorithm_iterations", "removal_applied", "exposure_before_s",
     "exposure_after_s", "exposure_excluded_s", "S_O_ms", "S_O_norm_ms_per_s",
     "S_O_norm_rms_ms_per_s", "S_O_error_in_percentage",
-    "percentage_of_removed_exposure", *CONDITION_COLUMNS, *PROJECTION_COLUMNS, "issues",
+    "percentage_of_removed_exposure", "fraction_of_removed_exposure", "S_O_error_fraction",
+    *CONDITION_COLUMNS, *PROJECTION_COLUMNS, "projection_position_unit", "issues",
 )
 def write_csv(path, fields, rows):
     with path.open("w", newline="") as handle:
@@ -43,7 +44,7 @@ def copy_plot(source, destination, issues):
 
 
 def copy_run_plots(before_plots, after_plots, diagnostics, destination, issues):
-    """Copy the nine per-run figures with explicit before/after filenames."""
+    """Copy available per-run figures with explicit before/after filenames."""
     name = "2D_integrated_ToT.png"
     copy_plot(after_plots / name, destination / name, issues)
     for name in DIAGNOSTICS:
@@ -55,6 +56,18 @@ def copy_run_plots(before_plots, after_plots, diagnostics, destination, issues):
         for phase, folder in (("before", before_plots), ("after", after_plots)):
             output = destination / f"{Path(name).stem}_{phase}.png"
             copy_plot(folder / name, output, issues)
+    for phase, folder in (("before", before_plots), ("after", after_plots)):
+        distributions = folder / "distributions"
+        if not distributions.is_dir():
+            distributions = folder  # Older plot exports stored these in the run folder.
+        files = [*distributions.glob("*_fit_distribution.png"),
+                 distributions / "projection_variations.csv"]
+        for source in files:
+            if source.is_file():
+                output = destination / "distributions"
+                output.mkdir(exist_ok=True)
+                shutil.copy2(source, output / f"{source.stem}_{phase}{source.suffix}")
+
 
 
 def main():

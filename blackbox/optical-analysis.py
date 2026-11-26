@@ -18,7 +18,7 @@ os.chdir(moddir)
 
 import h5py
 import numpy as np
-from optical_summary import write_optical_summary
+from optical_summary import projection_variation, write_optical_summary
 from spark_detection import draw_plot_statistics, plot_statistics, spark_cut
 
 import ROOT
@@ -369,6 +369,7 @@ tot_y_collapse = np.ascontiguousarray(np.sum(perChipTOT[:,:], axis=1),dtype=np.f
 hit_y_collapse = np.sum(perChipHIT[:,:], axis=1)
 
 projection_observables = {}
+projection_variations = []
 
 
 def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideband_sig,twoD_Gaussian,perChipTOT,order,directory,axis,res_folder,exposure,spa_cut):
@@ -539,13 +540,21 @@ def tpx_analysis(poly_type,mean,sig,tot_collapse,hit_collapse,signal_sig, sideba
     integral = sum(sig3_full)
     ADU3 = integral / exposure
 
+    axis_name = "X" if axis == 0 else "Y"
+    total_tot_ms = float(perChipTOT.sum() / 1e6)
+    background_ms = total_tot_ms - integral
+    variation = projection_variation(
+        axis_name, order, signal_sig, sideband_sig, sig3_full_bins, sig3_full,
+        float(background_ms / exposure),
+    )
+    projection_variations.append(variation)
     if save_standard_plot:
-        axis_name = "X" if axis == 0 else "Y"
-        total_tot_ms = perChipTOT.sum() / 1e6
         projection_observables.update({
-            f"{axis_name}_mean": float(np.mean(sig3_full)),
-            f"{axis_name}_RMS": float(np.std(sig3_full)),
-            f"B_{axis_name}_norm": float((total_tot_ms - integral) / exposure),
+            f"{axis_name}_mean": variation["mean_pixel"],
+            f"{axis_name}_RMS": variation["rms_pixel"],
+            "A": total_tot_ms,
+            f"B_{axis_name}": float(background_ms),
+            f"B_{axis_name}_norm": variation["background_norm_ms_per_s"],
         })
 
     #print(sum(sig3_full))
@@ -1061,7 +1070,7 @@ sig_out = pd.DataFrame([[ID],[pres],[FC],[E1],[E2],[E3],[E4],[purity],[mean_tot]
 inspect = pd.DataFrame([[f"{ID} Mean = {mean_round} RMS = {rms_round} ({round(percent,1)}%). Analysis performed at {now}"]])
 
 sig_out.T.to_csv(f"{path}/{directory}/integral.csv", mode="w", index=False, header=False)
-write_optical_summary(f"{path}/{directory}", projection_observables)
+write_optical_summary(f"{path}/{directory}", projection_observables, projection_variations)
 inspect.T.to_csv(f"{path}/{directory}/integral-inspect.csv", mode="w", index=False, header=False)
 
 sig_out.T.to_csv(f"{path}/results/signals.csv", mode="a", index=False, header=False)
