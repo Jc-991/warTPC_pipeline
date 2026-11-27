@@ -21,8 +21,8 @@ Usage: $(basename "$0") -i <dataset_dir> -o <output_dir> [--run optical|charge|b
   -o, --output    results go to <output_dir>/<name>_results/ (analysis and plots)
                   each completed optical run writes a table and a readable summary
   --run WHAT      which analysis to run: optical, charge or both (default: both)
-  --runs LIST     comma-separated run folder names (default: all). Selected
-                  runs use a fresh results directory if one already exists.
+  --runs LIST     comma-separated run folder names (default: all). If
+                  <name>_results exists, selected runs go to <name>_results-01, -02, ...
   --kind K        pressure or voltage: marker type in the plots (default: guessed
                   from the dataset name, e.g. pressure-pass-06 or prp*)
   --sparks on|off  grouped optical spark removal (default: on). With plots, run
@@ -127,8 +127,12 @@ outdir=$(cd "$outdir" && pwd)
 results="$outdir/${stem}_results"
 if [[ -n "$selection" ]]; then
   # Blackbox processes every run folder in its output directory.
+  # A rerun gets the next free <name>_results-01, -02, ... instead of reusing it.
   if ! mkdir -- "$results" 2>/dev/null; then
-    results=$(mktemp -d "$outdir/${stem}_results.XXXXXX") || die "cannot create selected-run results"
+    for n in $(seq -w 1 99); do
+      if mkdir -- "$outdir/${stem}_results-$n" 2>/dev/null; then results="$outdir/${stem}_results-$n"; break; fi
+      [[ $n == 99 ]] && die "cannot create selected-run results: ${stem}_results-01 to -99 all exist"
+    done
   fi
 fi
 

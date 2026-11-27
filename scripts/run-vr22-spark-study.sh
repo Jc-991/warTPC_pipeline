@@ -28,7 +28,11 @@ if [[ ! -d "$dataset/optical" ]]; then
 fi
 source "$settings" || exit 1
 mkdir -p -- "$results" || exit 1
-base=$(mktemp -d "$results/vr22-spark-study.XXXXXX") || exit 1
+base=""
+for n in $(seq -w 1 99); do  # vr22-spark-study-01, -02, ...
+  if mkdir -- "$results/vr22-spark-study-$n" 2>/dev/null; then base="$results/vr22-spark-study-$n"; break; fi
+done
+[[ -n "$base" ]] || { echo "vr22-spark-study-01 to -99 all exist in $results" >&2; exit 1; }
 work=$(mktemp -d "$base/.work.XXXXXX") || exit 1
 trap 'rm -rf -- "$work"' EXIT
 name="$(basename -- "$dataset")_results"

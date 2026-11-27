@@ -403,7 +403,7 @@ bash scripts/run-vr22-spark-study.sh
 
 It defaults to `vr22-06` and `vr22-07`. Pass run IDs as separate arguments
 to choose other runs from `vr22-06` through `vr22-13`. It runs the before
-and after fits with the same X binning, creates a fresh results directory,
+and after fits with the same X binning, creates the next free `vr22-spark-study-01`, `-02`, ... directory,
 and prints the location of the `optical_per_run/<run>/` folders. Each folder
 contains both summary files and nine PNGs: the after-cut 2D ToT image, the
 ToT histogram and marked arrival-time spectrum, and before/after pairs of
