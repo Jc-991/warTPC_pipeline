@@ -17,6 +17,29 @@ def elapsed_toa(toa):
     return toa.astype(np.int64) - np.int64(toa[0])
 
 
+def veto_padding(before=None, after=None):
+    """Return (before, after) veto padding in seconds; env vars default to 0."""
+    values = []
+    for value, name in ((before, "WARTPC_SPARK_VETO_BEFORE_S"), (after, "WARTPC_SPARK_VETO_AFTER_S")):
+        if value is None:
+            value = float(os.environ.get(name, "0") or 0)
+        if not np.isfinite(value) or value < 0:
+            raise ValueError(f"{name} must be a non-negative number of seconds")
+        values.append(float(value))
+    return tuple(values)
+
+
+def padded_intervals(intervals, before_ticks, after_ticks):
+    """Pad each [start, stop) interval and merge overlaps (no clipping to the run)."""
+    merged = []
+    for start, stop in sorted((a - before_ticks, b + after_ticks) for a, b in intervals):
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], stop)
+        else:
+            merged.append([start, stop])
+    return [tuple(interval) for interval in merged]
+
+
 def group_tot(elapsed, tot, width):
     bins, inverse, counts = np.unique(elapsed // width, return_inverse=True, return_counts=True)
     return bins, inverse, counts, np.bincount(inverse, weights=tot)
@@ -131,8 +154,16 @@ def save_tot_spectrum(seconds, tot, width, output, removed=None, *, spark_times=
         plt.close(fig)
 
 
-def spark_cut(toa, tot, report_path, *, mode=None):
-    """Return the optional keep mask, original exposure, and excluded seconds."""
+def spark_cut(toa, tot, report_path, *, mode=None, veto_before=None, veto_after=None):
+    """Return the optional keep mask, original exposure, and excluded seconds.
+
+    In grouped remove mode, veto_before/veto_after (seconds, default from
+    WARTPC_SPARK_VETO_BEFORE_S / WARTPC_SPARK_VETO_AFTER_S, else 0) widen each
+    flagged window to [start - before, stop + after); overlapping vetoes merge.
+    """
+    veto_before, veto_after = veto_padding(veto_before, veto_after)
+    padded = veto_before > 0 or veto_after > 0
+    vetoes = []
     if mode is None:
         mode = os.environ.get("WARTPC_SPARK_MODE", "off").strip().lower()
     if mode not in ("off", "detect", "remove"):
@@ -171,9 +202,21 @@ def spark_cut(toa, tot, report_path, *, mode=None):
                     for bin_id in bins[flagged]
                 ]
                 if mode == "remove" and intervals:
-                    keep = ~flagged[inverse]
+                    if padded:
+                        vetoes = padded_intervals(
+                            intervals,
+                            int(round(veto_before * TOA_TICKS_PER_SECOND)),
+                            int(round(veto_after * TOA_TICKS_PER_SECOND)))
+                        starts = np.array([start for start, _ in vetoes], dtype=np.int64)
+                        stops = np.array([stop for _, stop in vetoes], dtype=np.int64)
+                        # Index of the last veto starting at or before each hit.
+                        index = np.searchsorted(starts, elapsed, side="right") - 1
+                        inside = (index >= 0) & (elapsed < stops[np.maximum(index, 0)])
+                        keep = ~inside
+                    else:
+                        keep = ~flagged[inverse]
                     excluded_ticks = sum(max(0, min(stop, span) - max(0, start))
-                                         for start, stop in intervals)
+                                         for start, stop in (vetoes if padded else intervals))
                     excluded = excluded_ticks / TOA_TICKS_PER_SECOND
             else:
                 cutoff, flagged = flag_sparks(values)
@@ -211,8 +254,16 @@ def spark_cut(toa, tot, report_path, *, mode=None):
             f"Spark count rule: occupied time bins with summed ToT > mean + {TOT_CUT_RMS} RMS",
             f"Grouping width (s): {GROUPED_SPARK_WIDTH_TICKS / TOA_TICKS_PER_SECOND:g}",
         ))
+        if padded:
+            lines.extend((
+                f"Veto before/after each flagged window (s): {veto_before:g} / {veto_after:g}",
+                f"Merged veto intervals: {len(vetoes)}",
+            ))
         for start, stop in intervals:
             lines.append(f"Candidate since first hit (s): "
+                         f"{start / TOA_TICKS_PER_SECOND:.13f} to {stop / TOA_TICKS_PER_SECOND:.13f}")
+        for start, stop in vetoes:
+            lines.append(f"Veto since first hit (s): "
                          f"{start / TOA_TICKS_PER_SECOND:.13f} to {stop / TOA_TICKS_PER_SECOND:.13f}")
     else:
         lines.append(f"Spark count rule: individual hits with ToT > mean + {TOT_CUT_RMS} RMS")
