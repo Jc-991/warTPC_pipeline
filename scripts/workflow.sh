@@ -196,9 +196,6 @@ if [[ -d "$results/optical" ]]; then
     if bash "$STAGES/plot.sh" -r "$results" --dataset "$stem" ${kind:+--kind "$kind"}; then
       echo "--- 3. pair before/after ---"
       bash "$STAGES/pair.sh" -r "$results" ${selection:+--runs "$selection"} || status=1
-      # The before plots are now in plots/optical_per_run/; only plots/ is kept.
-      # Any pairing problems are listed above (and in the workflow log).
-      rm -rf -- "$results/before" "$results/paired"
     else
       status=1
     fi
@@ -209,6 +206,9 @@ if [[ -d "$results/optical" ]]; then
 else
   status=1; echo "plot skipped: no analysis results in $results"
 fi
+# Only plots/ (with the before/after pairs in optical_per_run/), optical/ fit
+# tables and logs/ are kept, whatever happened above. Problems are in this log.
+rm -rf -- "$results/before" "$results/paired"
 
 echo
 if [[ $status -eq 0 ]]; then

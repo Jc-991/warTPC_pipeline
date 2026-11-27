@@ -260,7 +260,6 @@ def plot_projection_distributions(source, destination, run, *, phase=None):
             _, edges, _ = ax.hist(values, bins='auto', color=COLORS[0], edgecolor='white')
             ax.set_title(f'Distribution of {axis} {quantity} across background fits\n{title}')
             ax.set_xlabel(YLABEL[metric])
-            ax.set_xlim(0, 256)
             ax.set_ylabel('Fit settings per bin')
             ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
             add_fit_distribution_stats(ax, values, edges)
