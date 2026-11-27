@@ -93,17 +93,17 @@ Run analyses inside an authorised compute allocation, not on a login node.
 ## Whole workflow: scripts/unzip.sh + scripts/workflow.sh
 
 For a ZIP uploaded to `/storage/phsccs_grp/transfer/`: unzip it once with
-`unzip.sh`, then analyse the folder with `workflow.sh` as often as needed. Full
+`unzip.sh`, decode it once with `stages/decode.sh`, then analyse the decoded
+folder with `workflow.sh` (optical only) as often as needed. Full
 usage, output and troubleshooting are in [scripts/workflow.md](scripts/workflow.md).
 
 ```bash
 cd scripts
 ./unzip.sh example.zip ~/warTPC/data                                   # -> ~/warTPC/data/example/
-./workflow.sh ~/warTPC/data/example ~/warTPC/results                   # optical, charge, plots
-./workflow.sh ~/warTPC/data/example ~/warTPC/results --no-plot         # same without the plots
-./workflow.sh ~/warTPC/data/example ~/warTPC/results --run charge      # only charge (or --run optical)
-./workflow.sh ~/warTPC/data/example ~/warTPC/results_rx --rebin-x on   # optical with rebinX(2)
-./optical-analysis.sh ~/warTPC/data/example ~/warTPC/results --runs 2,5-7  # redo chosen optical runs
+bash stages/decode.sh -i ~/warTPC/data/example -o ~/warTPC/decoded_data   # once: -> decoded_data/example/
+./workflow.sh -i ~/warTPC/decoded_data/example -o ~/warTPC/results       # fits (spark cut, 1 s/20 s veto), plots, pairs
+./workflow.sh -i ~/warTPC/decoded_data/example -o ~/warTPC/results_rx --rebin-x 2   # with X rebinning
+../build/charge -i ~/warTPC/data/example -o ~/warTPC/results/example_results     # charge, on its own
 ```
 
 `unzip.sh`:

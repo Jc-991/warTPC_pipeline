@@ -118,14 +118,30 @@ def save_tot_spectrum(seconds, tot, width, output, removed=None, *, spark_times=
     upper = max(0, int(np.floor(seconds.max() / width))) + 1
     edges = np.arange(lower, upper + 1) * width
     counts, _, tot_edges = np.histogram2d(seconds, tot, bins=(edges, 128))
+    # A full run has far more time columns than the image has pixels, and
+    # drawing them directly drops most columns (a single 5 ms spark can vanish).
+    # Show the largest bin of each group of columns per pixel instead.
+    max_columns = 1600
+    group = max(1, -(-counts.shape[0] // max_columns))
+    if group > 1:
+        padded = np.zeros((-(-counts.shape[0] // group) * group, counts.shape[1]))
+        padded[:counts.shape[0]] = counts
+        shown = padded.reshape(-1, group, counts.shape[1]).max(axis=1)
+        right = edges[0] + shown.shape[0] * group * width
+    else:
+        shown, right = counts, edges[-1]
+    label = f"Hits per {width * 1000:g} ms bin"
+    if group > 1:
+        label += f"\n(largest of every {group} bins)"
     fig, ax = plt.subplots(figsize=(12, 4), layout="constrained")
     try:
         image = ax.imshow(
-            counts.T, origin="lower", aspect="auto", interpolation="nearest",
-            extent=(edges[0], edges[-1], tot_edges[0], tot_edges[-1]),
-            norm=LogNorm(vmin=1, vmax=max(2, counts.max())),
+            shown.T, origin="lower", aspect="auto", interpolation="nearest",
+            extent=(edges[0], right, tot_edges[0], tot_edges[-1]),
+            norm=LogNorm(vmin=1, vmax=max(2, shown.max())),
         )
-        fig.colorbar(image, ax=ax, label="Hits per bin")
+        ax.set_xlim(edges[0], edges[-1])
+        fig.colorbar(image, ax=ax, label=label)
         ax.set(xlabel="Time relative to first stored hit (s)", ylabel="Hit ToT (stored units)",
                title="ToT versus arrival time before spark tagging")
         if removed is not None:
@@ -173,7 +189,8 @@ def spark_cut(toa, tot, report_path, *, mode=None, veto_before=None, veto_after=
     if method not in ("hit", "grouped"):
         raise ValueError("WARTPC_SPARK_METHOD must be hit or grouped")
     grouped = method == "grouped"
-    width = 0.01  # Time bin width for the overview spectrum.
+    # Time columns of the ToT-versus-time image: the same 5 ms as the spark grouping.
+    width = GROUPED_SPARK_WIDTH_TICKS / TOA_TICKS_PER_SECOND
     count = len(toa)
     duration = excluded = 0.0
     intervals = []

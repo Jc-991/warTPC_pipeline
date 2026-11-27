@@ -117,8 +117,10 @@ def main():
             intervals = re.findall(r"^Candidate since first hit \(s\): (\S+) to (\S+)$", text, re.M)
             if len(intervals) != count:
                 issues.append("candidate count differs from interval list")
+            # With a veto, the excluded exposure comes from the merged veto intervals.
+            vetoes = re.findall(r"^Veto since first hit \(s\): (\S+) to (\S+)$", text, re.M)
             if report["Removal applied"] == "yes":
-                for index, (start, stop) in enumerate(intervals, 1):
+                for index, (start, stop) in enumerate(vetoes or intervals, 1):
                     overlap = max(0, min(float(stop), before) - max(0, float(start)))
                     windows.append(dict(run=run, interval=index, start_s=start, stop_s=stop,
                                         excluded_exposure_s=f"{overlap:.9g}"))

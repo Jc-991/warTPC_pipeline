@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# ./workflow.sh -i path/to/unzipped/dataset -o output/path/to/directory
-#               [--run optical|charge|both] [--runs LIST] [--kind pressure|voltage]
-#               [--sparks on|off] [--rebin-x off|N] [--no-plot]
+# ./workflow.sh -i decoded_data/<dataset> -o output/path/to/directory
+#               [--runs LIST] [--kind pressure|voltage] [--sparks on|off] [--veto B,A|off]
+#               [--rebin-x off|N]
 #
-# Analyses an already unzipped dataset. To unzip an uploaded ZIP first:
-#   ./unzip.sh example.zip path/to/data     -> path/to/data/example/
+# Starts from data decoded beforehand with scripts/stages/decode.sh (done once,
+# when a dataset is imported). Runs the optical stages in scripts/stages/ in
+# order (each can also be run on its own; see scripts/workflow.md):
+#   fit.sh --spark off (before/) -> fit.sh --spark remove
+#   -> plot.sh --from before -> plot.sh -> pair.sh
+# Optical only. Charge reads the raw dataset and is run on its own:
+#   build/charge -i <raw_dataset_dir> -o <output_dir>/<name>_results
 
 set -uo pipefail
 
@@ -13,33 +18,38 @@ BUILD="${WARTPC_BUILD:-$REPO/build}"
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") -i <dataset_dir> -o <output_dir> [--run optical|charge|both] [--runs LIST]
-                         [--kind pressure|voltage] [--sparks on|off] [--rebin-x off|N] [--no-plot]
+Usage: $(basename "$0") -i <decoded_dataset_dir> -o <output_dir> [--runs LIST]
+                         [--kind pressure|voltage] [--sparks on|off] [--veto B,A|off]
+                         [--rebin-x off|N]
 
-  -i, --input     unzipped dataset folder (with optical/ and/or charge/);
-                  use unzip.sh first to unzip an uploaded ZIP
+  -i, --input     decoded dataset from decode.sh, e.g. ~/warTPC/decoded_data/<dataset>
+                  (holds optical/<run>/output.hdf5 and settings.csv)
   -o, --output    results go to <output_dir>/<name>_results/ (analysis and plots)
                   each completed optical run writes a table and a readable summary
-  --run WHAT      which analysis to run: optical, charge or both (default: both)
   --runs LIST     comma-separated run folder names (default: all). If
                   <name>_results exists, selected runs go to <name>_results-01, -02, ...
   --kind K        pressure or voltage: marker type in the plots (default: guessed
                   from the dataset name, e.g. pressure-pass-06 or prp*)
-  --sparks on|off  grouped optical spark removal (default: on). With plots, run
+  --sparks on|off  grouped optical spark removal (default: on): runs
                   before/after fits and export nine PNGs plus both summaries
                   per run under <name>_results/plots/optical_per_run/
+  --veto B,A|off  with sparks on, also remove hits B s before to A s after each
+                  flagged 5 ms window (default: 1,20; "off" = only the 5 ms
+                  windows). WARTPC_SPARK_VETO_BEFORE_S / _AFTER_S also set it
   --rebin-x off|N  merge N adjacent X pixels in the optical fits (2, 4, 8, 16);
                   default: off
-  --no-plot       skip the final plot export and the before-cut fit
   -h, --help      show this help
 
 The two directories can also be passed as positional arguments.
+Decode a new dataset first:
+  bash scripts/stages/decode.sh -i <raw_dataset_dir> -o ~/warTPC/decoded_data
+Charge is not part of this workflow; run build/charge on the raw dataset.
 EOF
 }
 die() { echo "$*" >&2; exit 1; }
 
 cmdline="$0${*:+ $*}"
-name="" outdir="" do_plot=1 kind="" run_what=both sparks=on rebin_x=off selection=""
+name="" outdir="" kind="" sparks=on rebin_x=off selection="" veto="" veto_given=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
@@ -51,12 +61,13 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 && -n "$2" && "$2" != -* ]] || die "$1 needs an output directory"
       [[ -z "$outdir" ]] || die "output directory already specified"
       outdir="$2"; shift 2 ;;
-    --plot) do_plot=1; shift ;;      # default; kept for older commands
-    --no-plot) do_plot=0; shift ;;
+    --plot) shift ;;  # plots are always made; accepted for older commands
+    --no-plot) die "--no-plot was removed; for fits only run: bash scripts/stages/fit.sh -r <results> -d <decoded_dataset> --spark remove --veto 1,20" ;;
     --run)
-      [[ $# -ge 2 && ( "$2" == optical || "$2" == charge || "$2" == both ) ]] \
-        || die "--run must be optical, charge or both"
-      run_what="$2"; shift 2 ;;
+      # Kept so older "--run optical" commands still work; charge has moved out.
+      [[ $# -ge 2 && "$2" == optical ]] \
+        || die "workflow.sh is optical only; run charge with: build/charge -i <raw_dataset_dir> -o <results_dir>"
+      shift 2 ;;
     --runs)
       [[ $# -ge 2 && "$2" =~ ^[^,]+(,[^,]+)*$ ]] || die "--runs needs comma-separated run folder names"
       selection="$2"; shift 2 ;;
@@ -66,6 +77,10 @@ while [[ $# -gt 0 ]]; do
     --sparks)
       [[ $# -ge 2 && ( "$2" == on || "$2" == off ) ]] || die "--sparks must be on or off"
       sparks="$2"; shift 2 ;;
+    --veto)
+      [[ $# -ge 2 && ( "$2" == off || "$2" =~ ^[0-9.]+,[0-9.]+$ ) ]] \
+        || die "--veto needs BEFORE,AFTER in seconds (e.g. 1,20) or off"
+      veto="$2"; veto_given=1; shift 2 ;;
     --rebin-x)
       [[ $# -ge 2 && "$2" =~ ^(off|1|2|4|8|16|on)$ ]] \
         || die "--rebin-x must be off or a bin width of 2, 4, 8 or 16"
@@ -86,48 +101,45 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$name" && -n "$outdir" ]] || { usage >&2; exit 2; }
 
-# 1. The dataset folder
-if [[ ! -d "$name" ]]; then
-  if [[ "$name" == *.zip || -f "$name" ]]; then
-    die "$name is not an unzipped folder; unzip it first: $(dirname "$0")/unzip.sh $(basename "$name") <data_dir>"
-  fi
-  die "$name does not exist"
-fi
-[[ -d "$name/optical" || -d "$name/charge" ]] || die "$name has no optical/ or charge/ folder"
+# 1. The decoded dataset
+[[ -d "$name" ]] || die "$name does not exist"
 dataset=$(cd "$name" && pwd)
 stem=$(basename "$dataset")
+decode_hint="decode it first: bash scripts/stages/decode.sh -i $name -o ~/warTPC/decoded_data"
+if compgen -G "$dataset/optical/*/rawdata_000000.tpx3" >/dev/null; then
+  die "$name holds raw .tpx3 data; $decode_hint"
+fi
+[[ -d "$dataset/optical" ]] || die "$name has no optical/ folder; pass the decoded dataset (decoded_data/<dataset>)"
 
-# 2. Tools needed below
-case "$run_what" in
-  optical) steps=(optical) ;;
-  charge)  steps=(charge) ;;
-  both)    steps=(optical charge) ;;
-esac
+# 2. Run selection and tools
 if [[ -n "$selection" ]]; then
   IFS=, read -r -a selected_runs <<< "$selection"
   for run in "${selected_runs[@]}"; do
     [[ "$run" != */* && "$run" != .* && "$run" != -* && "$run" != results ]] || die "invalid run folder name: $run"
-    found=0
-    for step in "${steps[@]}"; do
-      [[ -d "$dataset/$step" ]] || continue
-      [[ -d "$dataset/$step/$run" ]] || die "run '$run' not found in $step input for $stem"
-      found=1
-    done
-    [[ $found -eq 1 ]] || die "run '$run' not found in $run_what input for $stem"
+    [[ -d "$dataset/optical/$run" ]] || die "run '$run' not found in $dataset/optical"
   done
 fi
-for tool in "${steps[@]}"; do
-  [[ -x "$BUILD/$tool" ]] || die "$BUILD/$tool not found; build first: cmake -S $REPO -B $REPO/build && cmake --build $REPO/build"
-done
-[[ $do_plot -eq 0 || -x "$BUILD/plot" ]] || die "$BUILD/plot not found; rebuild the project"
+# Veto around each spark: --veto, else the environment variables, else 1 s / 20 s.
+if [[ $veto_given -eq 0 ]]; then
+  if [[ -n "${WARTPC_SPARK_VETO_BEFORE_S:-}${WARTPC_SPARK_VETO_AFTER_S:-}" ]]; then
+    veto="${WARTPC_SPARK_VETO_BEFORE_S:-0},${WARTPC_SPARK_VETO_AFTER_S:-0}"
+  else
+    veto="1,20"
+  fi
+fi
+[[ "$veto" == off || "$veto" =~ ^0*\.?0*,0*\.?0*$ ]] && veto=""
+if [[ "$sparks" == off ]]; then
+  [[ $veto_given -eq 0 || -z "$veto" ]] || die "--veto needs --sparks on"
+  veto=""
+fi
+[[ -x "$BUILD/plot" ]] || die "$BUILD/plot not found; rebuild the project"
 
 # 3. Results folder and log
 mkdir -p "$outdir" || die "cannot create $outdir"
 outdir=$(cd "$outdir" && pwd)
 results="$outdir/${stem}_results"
 if [[ -n "$selection" ]]; then
-  # Blackbox processes every run folder in its output directory.
-  # A rerun gets the next free <name>_results-01, -02, ... instead of reusing it.
+  # A rerun of selected runs gets the next free <name>_results-01, -02, ... instead of reusing it.
   if ! mkdir -- "$results" 2>/dev/null; then
     for n in $(seq -w 1 99); do
       if mkdir -- "$outdir/${stem}_results-$n" 2>/dev/null; then results="$outdir/${stem}_results-$n"; break; fi
@@ -145,9 +157,8 @@ tee_pid=${!:-}
 echo "# workflow started $(date '+%Y-%m-%d %H:%M:%S') on $(hostname)"
 echo "# command: $cmdline"
 echo "# dataset: $dataset"
-echo "# run:     ${steps[*]}"
 echo "# selection: ${selection:-all}"
-echo "# sparks:  $sparks (optical)"
+echo "# sparks:  $sparks (optical)$([[ "$sparks" == on ]] && { [[ -n "$veto" ]] && echo ", veto -${veto%,*} s / +${veto#*,} s" || echo ", no veto (5 ms windows only)"; })"
 echo "# rebin-x: $rebin_x (optical)"
 echo "# log:     $log"
 
@@ -155,136 +166,45 @@ echo "# log:     $log"
 echo
 echo "Dataset: $dataset"
 echo "Results: $results"
+STAGES="$REPO/scripts/stages"
 status=0
-spark_work=""
-input_view=""
-trap 'if [[ -n "$spark_work" ]]; then rm -rf -- "$spark_work"; fi
-      if [[ -n "$input_view" ]]; then rm -rf -- "$input_view"; fi' EXIT
-input="$dataset"
-if [[ -n "$selection" ]]; then
-  input_view=$(mktemp -d "${TMPDIR:-/tmp}/wartpc-input.XXXXXX") || die "cannot stage run selection"
-  for step in "${steps[@]}"; do
-    for run in "${selected_runs[@]}"; do
-      [[ -d "$dataset/$step/$run" ]] || continue
-      mkdir -p -- "$input_view/$step" || die "cannot create selected $step input"
-      ln -sfn -- "$dataset/$step/$run" "$input_view/$step/$run" || die "cannot stage $run"
-    done
-  done
-  input="$input_view"
-fi
-export WARTPC_REBIN=1 WARTPC_REBIN_X="$rebin_x"
-export WARTPC_SPARK_METHOD=grouped
-for step in "${steps[@]}"; do
-  echo; echo "=== $step ==="
-  if [[ ! -d "$input/$step" ]]; then
-    # Asked for explicitly: a missing folder is an error. With "both", a
-    # dataset that only has one kind of data is fine.
-    if [[ "$run_what" == both ]]; then
-      echo "No $step/ folder in $stem; skipping $step"
-    else
-      status=1; echo "$step requested, but $stem has no $step/ folder"
-    fi
-    continue
-  fi
-  if [[ "$step" == optical ]]; then
-    spark_mode=off
-    if [[ "$sparks" == on ]]; then
-      spark_mode=remove
-      if [[ $do_plot -eq 1 ]]; then
-        spark_work=$(mktemp -d "$results/.spark-work.XXXXXX") || die "cannot stage the before-cut optical fit"
-        echo "=== optical before spark removal ==="
-        WARTPC_SPARK_MODE=off "$BUILD/optical" -i "$input" -o "$spark_work/before" \
-          || { status=1; echo "Before-cut optical analysis failed"; }
-        echo "=== optical after spark removal ==="
-      fi
-    fi
-    WARTPC_SPARK_MODE="$spark_mode" "$BUILD/optical" -i "$input" -o "$results" \
-      || { status=1; echo "optical: some runs failed (see $results/optical_status.txt)"; }
-    bash "$REPO/scripts/write-spark-counts.sh" "$results" || status=1
-  else
-    "$BUILD/$step" -i "$input" -o "$results" \
-      || { status=1; echo "$step: some runs failed (see $results/${step}_status.txt)"; }
-  fi
-done
+pairing=0
+[[ "$sparks" == on ]] && pairing=1
 
-# 5. Plots (PLOT_GUIDE.md), made from whatever optical/charge produced, so
-#    runs that failed above show up as missing in plots/status.txt.
-plot_ok=0
-if [[ $do_plot -eq 1 ]]; then
-  echo; echo "=== plot ==="
-  if [[ -d "$results/optical" || -d "$results/charge" ]]; then
-    "$BUILD/plot" -i "$results" -o "$results/plots" --dataset "$stem" --no-comparisons ${kind:+--kind "$kind"} \
-      && plot_ok=1 || { status=1; echo "plot failed"; }
-  else
-    status=1; echo "plot skipped: no analysis results in $results"
-  fi
+echo; echo "=== optical ==="
+fit_opts=(-d "$dataset" --rebin-x "$rebin_x" ${selection:+--runs "$selection"})
+if [[ $pairing -eq 1 ]]; then
+  echo "--- 1a. fit without spark removal (before/) ---"
+  bash "$STAGES/fit.sh" -r "$results" --spark off "${fit_opts[@]}" || status=1
+fi
+if [[ "$sparks" == on ]]; then
+  echo "--- 1b. fit with spark removal ---"
+  bash "$STAGES/fit.sh" -r "$results" --spark remove ${veto:+--veto "$veto"} "${fit_opts[@]}" || status=1
+else
+  echo "--- 1. fit (spark removal off) ---"
+  bash "$STAGES/fit.sh" -r "$results" --spark off --into . "${fit_opts[@]}" || status=1
 fi
 
-if [[ -n "$spark_work" ]]; then
-  optical_runs=()
-  for run_dir in "$input"/optical/*/; do
-    [[ -d "$run_dir" ]] || continue
-    run=$(basename -- "$run_dir")
-    [[ "$run" != results ]] && optical_runs+=("$run")
-  done
-  if [[ $plot_ok -eq 1 && ${#optical_runs[@]} -gt 0 ]] &&
-    "$BUILD/plot" -i "$spark_work/before" -o "$spark_work/before/plots" --dataset "$stem" --no-comparisons ${kind:+--kind "$kind"}; then
-    report_status=0
-    "${WARTPC_PYTHON:-python3}" "$REPO/scripts/report-vr22-sparks.py" \
-      "$spark_work/before" "$results" "$spark_work/report" --runs "${optical_runs[@]}" \
-      || report_status=$?
-    export_dir="$results/plots/optical_per_run"
-    paired="$spark_work/report/optical_per_run"
-    if [[ $report_status -eq 0 ]]; then
-      rm -rf -- "$export_dir" && mv -- "$paired" "$export_dir" \
-        || die "cannot publish the paired optical plots"
-      echo "Optical exports: $export_dir"
+# 5. Plots, made from whatever the fits produced, so runs that failed above
+#    show up as missing in plots/status.txt.
+echo; echo "=== plot ==="
+if [[ -d "$results/optical" ]]; then
+  if [[ $pairing -eq 1 ]]; then
+    echo "--- 2a. plot before/ ---"
+    bash "$STAGES/plot.sh" -r "$results" --from before --dataset "$stem" ${kind:+--kind "$kind"} || status=1
+    echo "--- 2b. plot ---"
+    if bash "$STAGES/plot.sh" -r "$results" --dataset "$stem" ${kind:+--kind "$kind"}; then
+      echo "--- 3. pair before/after ---"
+      bash "$STAGES/pair.sh" -r "$results" ${selection:+--runs "$selection"} || status=1
     else
-      if [[ -f "$spark_work/report/run_summary.csv" ]]; then
-        for run in "${optical_runs[@]}"; do
-          [[ -d "$export_dir/$run" ]] || continue
-          for plot in "$paired/$run/"*_before.png "$paired/$run/"*_after.png \
-                      "$paired/$run/"projection_variations_{before,after}.csv; do
-            [[ -f "$plot" ]] || continue
-            cp -- "$plot" "$export_dir/$run/" || die "cannot publish $plot"
-            case ${plot##*/} in
-              x_projection_signal_after.png|y_projection_signal_after.png|combined_integral_distribution_after.png)
-                plot_name=${plot##*/}
-                rm -f -- "$export_dir/$run/${plot_name%_after.png}.png" \
-                  || die "cannot remove the duplicate plot for $run"
-                ;;
-              projection_variations_after.csv)
-                rm -f -- "$export_dir/$run/projection_variations.csv" \
-                  || die "cannot remove the duplicate fit table for $run"
-                ;;
-            esac
-          done
-          for plot in "$paired/$run"_*_fit_distribution_{before,after}.png; do
-            [[ -f "$plot" ]] || continue
-            cp -- "$plot" "$export_dir/" || die "cannot publish $plot"
-            if [[ ${plot##*/} == *_after.png ]]; then
-              plot_name=${plot##*/}
-              rm -f -- "$export_dir/${plot_name%_after.png}.png" \
-                || die "cannot remove the duplicate fit distribution for $run"
-            fi
-          done
-        done
-        echo "Optical exports (available plots): $export_dir"
-      fi
       status=1
-      echo "Paired optical export incomplete. Work files: $spark_work"
-      spark_work=""
     fi
   else
-    status=1
-    echo "Paired optical export failed. Work files: $spark_work"
-    spark_work=""
+    echo "--- 2. plot ---"
+    bash "$STAGES/plot.sh" -r "$results" --dataset "$stem" ${kind:+--kind "$kind"} --organise || status=1
   fi
-fi
-
-if [[ $do_plot -eq 1 && -d "$results/plots" ]]; then
-  "${WARTPC_PYTHON:-python3}" "$REPO/scripts/organise-optical-plots.py" \
-    --workflow-export "$results/plots" || status=1
+else
+  status=1; echo "plot skipped: no analysis results in $results"
 fi
 
 echo

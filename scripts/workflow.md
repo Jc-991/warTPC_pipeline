@@ -1,23 +1,24 @@
 # unzip.sh, workflow.sh, optical-analysis.sh and optical-rebin-x.sh
 
-Two scripts take an uploaded dataset from `/storage/phsccs_grp/transfer/` to
-plots:
+Three scripts take an uploaded dataset from `/storage/phsccs_grp/transfer/` to
+plots. The first two run once per dataset, when it is imported:
 
 1. **`unzip.sh`** unzips the ZIP into a data folder.
-2. **`workflow.sh`** analyses the unzipped folder: optical and/or charge, then
-   the plots listed in `PLOT_GUIDE.md`.
+2. **`stages/decode.sh`** decodes the optical raw data once into
+   `~/warTPC/decoded_data/<name>/` (see [Decoding on import](#decoding-on-import)).
+3. **`workflow.sh`** analyses the decoded data: spark cut, fits, then the plots
+   listed in `PLOT_GUIDE.md`. It is optical only; charge is run on its own
+   (see [Charge](#charge)).
 
 ```bash
 cd scripts
-./unzip.sh example.zip ~/warTPC/data                      # -> ~/warTPC/data/example/
-./workflow.sh ~/warTPC/data/example ~/warTPC/results      # -> ~/warTPC/results/example_results/
+./unzip.sh example.zip ~/warTPC/data                                   # -> ~/warTPC/data/example/
+bash stages/decode.sh -i ~/warTPC/data/example -o ~/warTPC/decoded_data  # -> ~/warTPC/decoded_data/example/
+./workflow.sh -i ~/warTPC/decoded_data/example -o ~/warTPC/results     # -> ~/warTPC/results/example_results/
 ```
 
-`example.zip` stands for whatever ZIP you uploaded.
-
-To redo only some optical runs later, use
-[`optical-analysis.sh`](#optical-analysissh-chosen-runs-only). Unzip once; after that,
-run `workflow.sh` on the folder as often as you like.
+`example.zip` stands for whatever ZIP you uploaded. Unzip and decode once;
+after that, run `workflow.sh` on the decoded folder as often as you like.
 
 Both scripts can be run from anywhere, e.g. `scripts/workflow.sh ...` from the
 repository folder. `workflow.sh` finds `build/` relative to its own location.
@@ -74,51 +75,114 @@ Notes:
 ## workflow.sh
 
 ```
-./workflow.sh <dataset_dir> <output_dir> [--run optical|charge|both] [--kind pressure|voltage]
-              [--rebin-x on|off] [--no-plot]
+./workflow.sh -i <decoded_dataset_dir> -o <output_dir>
+              [--runs LIST] [--kind pressure|voltage] [--sparks on|off] [--veto B,A|off]
+              [--rebin-x off|N]
 ```
 
 | Argument / option | Meaning |
 |---|---|
-| `<dataset_dir>` | Unzipped dataset folder, containing `optical/` and/or `charge/`. Usually made by `unzip.sh`, but any dataset folder works. It is only read, never changed |
-| `<output_dir>` | Results go to `<output_dir>/<name>_results/`, where `<name>` is the dataset folder's name. Created if missing |
-| `--run optical\|charge\|both` | Which analysis to run. Default `both`. With `optical` or `charge`, a missing `optical/` or `charge/` folder counts as a failure; with `both`, a missing folder is just skipped |
+| `-i <decoded_dataset_dir>` | Decoded dataset from `decode.sh`, e.g. `~/warTPC/decoded_data/voltage-run-22-11-26`. Giving the raw folder instead stops with `... holds raw .tpx3 data; decode it first` |
+| `-o <output_dir>` | Results go to `<output_dir>/<name>_results/`, where `<name>` is the dataset folder's name. Created if missing |
+| `--runs LIST` | Comma-separated runs (default all) |
+| `--sparks on\|off`, `--veto B,A\|off` | Spark cut (default on) and the veto around each flagged window (default `1,20`) |
 | `--kind pressure\|voltage` | Whether this is a pressure or a voltage dataset, which sets the plot markers. Default: guessed from the dataset name (`pressure-pass-*`, `prp*`, `voltage-run-*`, `vr*`). If the guess fails, diamonds are used |
-| `--rebin-x on\|off` | rebinX(2) in the optical analysis: neighbouring X pixels merged in pairs for the 2D Gaussian fit **and** for the X projection before the sideband fits (see [rebinX(2)](#rebinx2-switch---rebin-x-onoff)). Default `off` = Matt's original analysis |
-| `--no-plot` | Skip the plotting step |
+| `--rebin-x off\|N` | X rebinning in the optical analysis: neighbouring X pixels merged in pairs for the 2D Gaussian fit **and** for the X projection before the sideband fits (see [rebinX(2)](#rebinx2-switch---rebin-x-onoff)). Default `off` = Matt's original analysis |
 | `-h, --help` | Show help |
 
 `<name>` is also the dataset name in plot legends and comparisons, so a
 descriptive name such as `pressure-pass-06` gives the clearest plots.
 
-Giving a ZIP instead of a folder stops with
-`example.zip is not an unzipped folder; unzip it first: ...unzip.sh example.zip <data_dir>`.
-
 ### Examples
 
 ```bash
-# Optical and charge, then plots
-./workflow.sh ~/warTPC/data/example ~/warTPC/results
+# Optical (spark cut with the 1 s / 20 s veto), then plots and before/after pairs
+./workflow.sh -i ~/warTPC/decoded_data/example -o ~/warTPC/results
 
-# State that it is a voltage dataset
-./workflow.sh ~/warTPC/data/example ~/warTPC/results --kind voltage
-
-# Only optical, no plots
-./workflow.sh ~/warTPC/data/example ~/warTPC/results --run optical --no-plot
-
-# Only charge (e.g. after optical has already run into the same results)
-./workflow.sh ~/warTPC/data/example ~/warTPC/results --run charge
+# Two runs only, 5 ms windows without the veto
+./workflow.sh -i ~/warTPC/decoded_data/example -o ~/warTPC/results --runs vr22-06,vr22-07 --veto off
 ```
 
 ### What it does
 
 | Step | Action | Stops with |
 |---|---|---|
-| 1 | Checks the dataset folder | `<dir> does not exist`, `<dir> has no optical/ or charge/ folder`, `... is not an unzipped folder` |
-| 2 | Checks that the needed commands are built | `.../build/optical not found` |
+| 1 | Checks the decoded folder | `<dir> does not exist`, `... holds raw .tpx3 data; decode it first` |
+| 2 | Checks that the plot command is built | `.../build/plot not found` |
 | 3 | Creates `<output_dir>/<name>_results/` and starts the log | — |
-| 4 | Runs `optical`, then `charge` (or only the one chosen with `--run`) | Doesn't stop: failed runs are reported and the next step still runs |
-| 5 | Runs `plot` into `<name>_results/plots/` (unless `--no-plot`) | Doesn't stop |
+| 4 | Runs the fit stages below in order | Doesn't stop: failed runs are reported and the next step still runs |
+| 5 | Plots and before/after pairs into `<name>_results/plots/` | Doesn't stop |
+
+## Decoding on import
+
+```bash
+bash scripts/stages/decode.sh -i <raw_dataset_dir> -o ~/warTPC/decoded_data [--runs LIST] [--force] [--timeout MIN]
+```
+
+Run this once per dataset, when it is imported. It runs `tpx3dump` on every
+`optical/<run>/rawdata_000000.tpx3` and keeps only what the analysis reads:
+
+```
+~/warTPC/decoded_data/<name>/
+├── optical/<run>/
+│   ├── output.hdf5      tpx3dump output (the hits)
+│   └── settings.csv     ID, pressure, voltages, methane fraction
+├── logs/decode/<run>.log
+└── decode_status.txt    last pass: decoded, skipped, failed (with the reason)
+```
+
+- Runs already decoded are skipped; `--force` redoes them. `settings.csv` is
+  refreshed if the raw dataset's copy has changed.
+- A run taking longer than `--timeout MIN` (default 10, `0` = no limit) is
+  stopped and marked failed, and the next run starts. A failed run never stops
+  the others; redo it with `--runs <run>` (and a longer `--timeout` if needed).
+- Charge has no decode step (it reads `waveforms.csv` from the raw dataset), so
+  nothing for charge is stored here.
+- Results folders link to the stored HDF5 rather than copying it
+  (`<name>_results/decoded` points at `decoded_data/<name>/optical`), so
+  **keep the decoded folder** while you still use those results.
+
+## Optical stages: running one step at a time
+
+After decoding, the optical part of `workflow.sh` is three scripts in
+`scripts/stages/`. Each works on a results folder `R`
+(`<output_dir>/<name>_results`), can be rerun on its own, takes `--runs LIST`
+(names or quoted patterns such as `'vr22-1*'`), and prints `-h` help. When
+something breaks, rerun only the failing stage.
+
+| Stage | Command | Reads | Writes |
+|---|---|---|---|
+| fit, uncut | `stages/fit.sh -r R -d <decoded_dataset_dir> --spark off` | `decoded_data/<name>/optical/` (remembered as `R/decoded`, so `-d` can be left out later) | `R/before/optical/<run>/`, `R/before/optical_status.txt`; log `R/before/logs/fit/<run>.log` |
+| fit, cut | `stages/fit.sh -r R --spark remove [--veto 1,20]` | `R/decoded/` | `R/optical/<run>/`, `R/optical_status.txt`, `R/spark_counts.csv`; log `R/logs/fit/<run>.log` |
+| plot | `stages/plot.sh -r R --from before`, then `stages/plot.sh -r R` | the fit folder | `R/before/plots/`, `R/plots/` (replaced each time) |
+| pair | `stages/pair.sh -r R` | `R/before/plots/`, `R/plots/` | `R/paired/` (kept), then `R/plots/optical_per_run/` and the plot IDs |
+
+Notes:
+- `fit.sh` runs `blackbox/optical-analysis.py` directly on the decoded HDF5, so
+  a refit never repeats `tpx3dump`. Each selected run's folder is replaced and
+  the other runs are kept, so a folder can mix settings if you refit only some
+  runs; `spark_status.txt` in each run's `diagnostics/` records what was used.
+- `--analysis FILE` swaps in another analysis script; `--rebin-x N` as in `workflow.sh`.
+- Without pairing (`--sparks off` or no before fit), use
+  `stages/plot.sh -r R --organise` to give the plots their IDs.
+- On Hammer each stage loads `blackbox/setup_blackbox.sh` itself.
+
+`workflow.sh` applies the veto by default (`--veto 1,20`: every hit from 1 s
+before to 20 s after each flagged 5 ms window is removed, and that time is
+taken off the exposure). `--veto off` keeps only the 5 ms windows; `--veto B,A`
+sets other margins. `fit.sh` itself has no default: pass `--veto` explicitly.
+
+The ToT-versus-arrival-time images use 5 ms time columns, the same windows as
+the spark grouping. A full run has more columns than the image has pixels, so
+each pixel shows the largest 5 ms bin it covers (the colour bar says how many).
+
+Example, redoing the cut fit and plots for one run with a veto:
+
+```bash
+bash scripts/stages/fit.sh  -r "$R" --spark remove --veto 1,20 --runs vr22-07
+bash scripts/stages/plot.sh -r "$R"
+bash scripts/stages/pair.sh -r "$R"
+```
 
 ## optical-analysis.sh: chosen runs only
 
@@ -144,7 +208,7 @@ ones that failed) without rerunning the whole dataset.
 | `--list` | Only list the runs with their numbers |
 | `--kind pressure\|voltage` | Marker type in the plots |
 | `--analysis FILE` | Use FILE instead of `blackbox/optical-analysis.py`, e.g. `../blackbox/optical-analysis-rebin-x.py` |
-| `--rebin-x on\|off` | rebinX(2) in the optical analysis: neighbouring X pixels merged in pairs for the 2D Gaussian fit **and** for the X projection before the sideband fits (see [rebinX(2)](#rebinx2-switch---rebin-x-onoff)). Default `off` = Matt's original analysis |
+| `--rebin-x off\|N` | X rebinning in the optical analysis: neighbouring X pixels merged in pairs for the 2D Gaussian fit **and** for the X projection before the sideband fits (see [rebinX(2)](#rebinx2-switch---rebin-x-onoff)). Default `off` = Matt's original analysis |
 | `--rebin N` | Test: merge N×N pixels (N = 2, 4, 8, 16) before the 2D Gaussian fit. The rebinned map and slices are printed too, and the fit result is converted back to pixel units, so the rest of the analysis is unchanged. Default 1 = no rebinning |
 | `--no-plot` | Skip the plots |
 
@@ -171,6 +235,9 @@ In a batch job there's no terminal to ask, so `--runs` is required there.
 
 <output_dir>/
 └── <name>_results/
+    ├── decoded -> ~/warTPC/decoded_data/<name>/optical   decoded runs (from decode.sh), shared
+    ├── before/                  uncut fits (optical/<run>/) and their plots/
+    ├── paired/                  before/after pairs as built by pair.sh (stage 4)
     ├── optical/<run>/           Blackbox optical output per run (output.hdf5, integral.csv, plots,
     │                            diagnostics/ with the 2D map and projections from before the fit)
     ├── optical/results/         signals.csv for all runs
@@ -350,26 +417,30 @@ rebinning was used; the parameters are always in original pixel units, so the
 two can be compared directly. The 2D fit's starting point is the hottest
 rebinned bin. Use `optical-analysis.sh --rebin 2` for this two-axis fit test.
 
-## Running only optical or only charge
+## Charge
 
-`--run optical` or `--run charge` runs just that analysis. The plots are made
-from whatever is in the results folder, so:
-- after `--run optical` alone, the V50 and ratio plots are empty (no charge
-  results yet);
-- running the other one later, into the same `<output_dir>`, adds its results,
-  and the plots are remade with both. The step that isn't rerun keeps its
-  earlier results.
+`workflow.sh` is optical only (`--run optical` is still accepted, for older
+commands). Charge has no decode step and reads `charge/<run>/waveforms.csv`
+from the raw dataset, so run it on its own into the same results folder, then
+remake the plots so the V50 and ratio plots include it:
+
+```bash
+build/charge -i ~/warTPC/data/<name> -o ~/warTPC/results/<name>_results
+bash scripts/stages/plot.sh -r ~/warTPC/results/<name>_results
+bash scripts/stages/pair.sh -r ~/warTPC/results/<name>_results
+```
+
+Without charge results, the V50 and ratio plots are empty.
 
 ## Selecting runs with workflow.sh
 
 Pass exact run folder names as a comma-separated list:
 
 ```bash
-bash scripts/workflow.sh -i "$dataset" -o "$results" --run optical --runs vr22-06,vr22-07
+bash scripts/workflow.sh -i "$decoded" -o "$results" --runs vr22-06,vr22-07
 ```
 
-Use `--run both` for runs present in both input types when the dataset contains
-both optical and charge data. If the standard results directory already exists,
+If the standard results directory already exists,
 the selected run gets a fresh directory with a suffix, printed by the workflow.
 
 ## Spark detection
@@ -386,8 +457,7 @@ dataset before and after the cut, then writes nine PNGs,
 `run_summary.txt`, and `run_summary_readable.txt` for each optical run under
 `<name>_results/plots/optical_per_run/`. Copy that folder to transfer just
 the plots and summaries. Use `--sparks off` for a single uncut fit.
-With `--no-plot`, the workflow runs only the selected fit and writes its
-text summary.
+For fits without plots, run `stages/fit.sh` on its own.
 
 X rebinning is off by default. Use `--rebin-x 2` to merge pairs, or specify
 `4`, `8` or `16` for the number of adjacent X pixels per bin. Both spark
