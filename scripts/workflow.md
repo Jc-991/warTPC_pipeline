@@ -471,7 +471,7 @@ from the exposure. As in Matt’s original analysis, exposure is the last stored
 ToA minus the first, divided by 1e13 to give seconds. The first stored hit is
 time zero for the spark plots and grouping. The summary counts flagged windows
 as sparks. The workflow fits the same
-dataset before and after the cut, then writes nine PNGs,
+dataset before and after the cut, then writes ten PNGs,
 `run_summary.txt`, and `run_summary_readable.txt` for each optical run under
 `<name>_results/plots/optical_per_run/`. Copy that folder to transfer just
 the plots and summaries. Use `--sparks off` for a single uncut fit.
@@ -493,8 +493,9 @@ It defaults to `vr22-06` and `vr22-07`. Pass run IDs as separate arguments
 to choose other runs from `vr22-06` through `vr22-13`. It runs the before
 and after fits with the same X binning, creates the next free `vr22-spark-study-01`, `-02`, ... directory,
 and prints the location of the `optical_per_run/<run>/` folders. Each folder
-contains both summary files and nine PNGs: the after-cut 2D ToT image, the
-ToT histogram and marked arrival-time spectrum, and before/after pairs of
+contains both summary files and ten PNGs: the after-cut 2D ToT image, the
+ToT histogram, the arrival-time spectrum before the cut and with the
+removed windows marked, and before/after pairs of
 the X projection, Y projection, and combined integral distribution. The
 runner removes its temporary files after successful packaging. Copy the
 printed results directory with `scp -r` to transfer both run folders.

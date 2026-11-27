@@ -3,28 +3,6 @@
 #
 #   decode.sh -i <dataset.zip | raw_dataset_dir> -o <decoded_root> [--runs LIST] [--force]
 #             [--timeout MIN] [--tmp DIR]
-#
-# -i is an uploaded ZIP (a bare name such as voltage-run-18-11-26.zip is looked
-# up in /storage/phsccs_grp/transfer/) or an already unzipped dataset folder.
-# A ZIP is unzipped into a temporary folder (--tmp, default <decoded_root>),
-# decoded, and the temporary copy deleted; if every run in it is already
-# decoded, it is not unzipped at all. <dataset> is the ZIP's name without .zip.
-#
-# For every run in <dataset>/optical/<run>/, runs tpx3dump on
-# rawdata_000000.tpx3 and writes
-#   <decoded_root>/<dataset>/optical/<run>/output.hdf5
-#   <decoded_root>/<dataset>/optical/<run>/settings.csv
-# These are the only per-run files the optical fits and plots read; point
-# workflow.sh -i at <decoded_root>/<dataset>. Runs already decoded are skipped
-# unless --force is given (settings.csv is still refreshed if it changed). A run
-# whose tpx3dump takes longer than --timeout minutes (default 10, 0 = no limit)
-# is stopped, marked failed, and the next run starts. The raw dataset is never written.
-# Logs: <decoded_root>/<dataset>/logs/decode/<run>.log
-# Summary of the last pass: <decoded_root>/<dataset>/decode_status.txt
-# Report of every run attempted, all datasets, appended each time:
-#   <decoded_root>/decode_report.tsv  (time, dataset, run, result, seconds, reason)
-#   result is OK, TIMEOUT or FAILED; grep TIMEOUT to find runs over the limit
-#
 # Examples:
 #   bash scripts/stages/decode.sh -i voltage-run-18-11-26.zip -o ~/warTPC/decoded_data
 #   bash scripts/stages/decode.sh -i ~/warTPC/data/voltage-run-22-11-26 -o ~/warTPC/decoded_data
@@ -53,8 +31,6 @@ done
 mkdir -p "$out_root" || die "cannot create $out_root"
 out_root=$(cd "$out_root" && pwd)
 
-# A ZIP: work out which file, skip it if everything in it is decoded, else
-# unzip it into a temporary folder that is removed when this script ends.
 zip=""
 if [[ ! -d "$dataset" ]]; then
   zip="$dataset"
@@ -95,14 +71,13 @@ select_runs "${available[@]+"${available[@]}"}"
 (( ${#SELECTED[@]} > 0 )) || die "no runs in $dataset/optical"
 load_environment
 
-# Time limit per run, in seconds (WARTPC_DECODE_TIMEOUT_S overrides, for testing).
+
 limit_s=${WARTPC_DECODE_TIMEOUT_S:-$((timeout_min * 60))}
 if (( limit_s == 0 )); then limit_text="none"
 elif [[ -n "${WARTPC_DECODE_TIMEOUT_S:-}" ]]; then limit_text="${limit_s} s"
 else limit_text="${timeout_min} min"; fi
 
-# Run "$@" with that limit; on timeout stop it and anything it started, return 124.
-# Uses coreutils timeout (Linux/Hammer), or a small perl watchdog where it is missing.
+
 run_limited() {
   (( limit_s > 0 )) || { "$@"; return; }
   if command -v timeout >/dev/null 2>&1; then

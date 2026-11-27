@@ -2,6 +2,8 @@
 
 Started 24 November 2026. Updated 27 November 2026.
 
+The pipeline was restructured on 27 November (decode once, stage scripts, spark veto); see [2026-11-27-pipeline-restructure.md](2026-11-27-pipeline-restructure.md). Workflow commands below predate that.
+
 ## November production status
 
 - The Desktop export is `~/Desktop/warTPC optical-voltage-pressure/`. It holds voltage scans from 18, 19, 20, and 22 November and pressure passes 01–05. The VR22 dataset was renamed to `voltage-run-22-11-26` on the cluster. The export records 83 run folders and 79 saved optical fits. The optical production overlay plots 76 points.

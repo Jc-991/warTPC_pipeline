@@ -31,7 +31,7 @@ Usage: $(basename "$0") -i <decoded_dataset_dir> -o <output_dir> [--runs LIST]
   --kind K        pressure or voltage: marker type in the plots (default: guessed
                   from the dataset name, e.g. pressure-pass-06 or prp*)
   --sparks on|off  grouped optical spark removal (default: on): runs
-                  before/after fits and export nine PNGs plus both summaries
+                  before/after fits and export ten PNGs plus both summaries
                   per run under <name>_results/plots/optical_per_run/
   --veto B,A|off  with sparks on, also remove hits B s before to A s after each
                   flagged 5 ms window (default: 1,20; "off" = only the 5 ms

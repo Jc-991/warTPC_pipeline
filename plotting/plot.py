@@ -765,6 +765,10 @@ def main():
     write_combined_run_summary(out)
     shown = [r for r in rows if r['run'] not in excluded]
     summary_plots(shown, dataset, kind, out / 'summary_plots', warnings)
+    try:  # optical-only datasets have no channel-B V50 histograms
+        (out / 'v50_distributions').rmdir()
+    except OSError:
+        pass
 
     if not a.no_comparisons:
         # Comparison set: history baseline, earlier plot outputs, then this dataset.

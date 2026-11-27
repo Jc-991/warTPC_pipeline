@@ -7,7 +7,7 @@
 #   <results_dir>/before/plots/   (fit.sh --spark off, plot.sh --from before)
 #   <results_dir>/plots/          (fit.sh --spark remove, plot.sh)
 # Writes the pairs to <results_dir>/paired/ (kept for checking), then replaces
-# <results_dir>/plots/optical_per_run/ with them: per run nine PNGs,
+# <results_dir>/plots/optical_per_run/ with them: per run ten PNGs,
 # run_summary.txt and run_summary_readable.txt. If some pairs are incomplete,
 # the available before/after plots are added to the after-only export instead.
 # Finally the plots get their IDs (organise-optical-plots.py).
