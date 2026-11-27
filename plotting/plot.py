@@ -16,6 +16,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from scipy.signal import find_peaks, peak_widths
+from run_summaries import write_combined_run_summary
 
 REFERENCE = Path(__file__).resolve().parent.parent / 'reference'
 
@@ -524,7 +525,19 @@ def load_results(path, dataset=None):
     return rows
 
 
-def comparison_plots(rows, folder, paper, warnings, notes, metrics=None, *, summary_dataset=None):
+def add_figure_footnote(fig, footnote):
+    if not footnote:
+        return
+    engine = fig.get_layout_engine()
+    if isinstance(engine, matplotlib.layout_engine.ConstrainedLayoutEngine):
+        engine.set(rect=(0, .09, 1, .91))
+    else:
+        fig.tight_layout(rect=(0, .09, 1, 1))
+    fig.text(.08, .025, footnote, fontsize=8, ha='left', va='bottom', color='.25')
+
+
+def comparison_plots(rows, folder, paper, warnings, notes, metrics=None, *, summary_dataset=None,
+                     footnote=None):
     folder.mkdir(parents=True, exist_ok=True)
     datasets = sorted({r['dataset'] for r in rows}, key=natural_key)
     color = {d: COLORS[i % len(COLORS)] for i, d in enumerate(datasets)}
@@ -564,6 +577,7 @@ def comparison_plots(rows, folder, paper, warnings, notes, metrics=None, *, summ
         if len(entries) == 1 and entries[0][0] == summary_dataset and summary_plot.is_file():
             shutil.copy2(summary_plot, folder / summary_name)
         else:
+            add_figure_footnote(fig, footnote)
             fig.savefig(folder / filename, dpi=150)
         plt.close(fig)
 
@@ -608,6 +622,12 @@ def comparison_plots(rows, folder, paper, warnings, notes, metrics=None, *, summ
         glyph(1960, ly + 17, kind[d], color[d], s=12)
         dr.text((1990, ly), d, fill=color[d], font=font)
         ly += 40
+    if footnote:
+        canvas = Image.new('RGB', (image.width, image.height + 120), 'white')
+        canvas.paste(image, (0, 0))
+        ImageDraw.Draw(canvas).multiline_text((100, image.height + 20), footnote,
+                                              fill='#404040', font=font)
+        image = canvas
     image.save(folder / 'optical_paper_overlay.png')
     write_csv(folder / 'paper_overlay_out_of_range.csv', outside, ['dataset', 'run', 'v_over_p', 'optical'])
 
@@ -742,6 +762,7 @@ def main():
 
     run_conditions(rows, out)
     write_csv(out / 'results.csv', rows, RESULT_FIELDS)
+    write_combined_run_summary(out)
     shown = [r for r in rows if r['run'] not in excluded]
     summary_plots(shown, dataset, kind, out / 'summary_plots', warnings)
 

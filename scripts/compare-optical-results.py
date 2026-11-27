@@ -6,6 +6,7 @@ import csv
 from itertools import cycle
 from math import isclose
 from pathlib import Path
+import re
 import runpy
 import sys
 
@@ -22,7 +23,13 @@ def set_metric_limits(ax, metric, scale):
         ax.set_ylim(bottom=0)
 
 
-def streaming_and_physics(rows, metrics, output):
+def streaming_label(label):
+    label = re.sub(r"^pressure-pass-(\d+)", r"Pass \1", label)
+    label = re.sub(r"^voltage-run-(\d+)-11-26", r"\1 Nov", label)
+    return label.replace(" (", "\n(")
+
+
+def streaming_and_physics(rows, metrics, output, footnote=None):
     groups = {}
     for row in rows:
         groups.setdefault(row["dataset"], []).append(row)
@@ -41,12 +48,13 @@ def streaming_and_physics(rows, metrics, output):
                 plot.draw(ax, points, colors[label], group[0]["kind"])
                 ax.axvline(positions[0] - .5, color=".82", linewidth=.7)
                 ticks.append((positions[0] + positions[-1]) / 2)
-                labels.append(label.replace(" (", "\n("))
+                labels.append(streaming_label(label))
             ax.set(xticks=ticks, xticklabels=labels, xlim=(-.5, len(rows) - .5),
                    xlabel="Run order within each dataset", ylabel=plot.YLABEL[metric])
             ax.tick_params(axis="x", labelsize=8)
             ax.grid(axis="y", alpha=.2)
             set_metric_limits(ax, metric, scale)
+            plot.add_figure_footnote(fig, footnote)
             fig.savefig(output / "streaming" / f"{metric}_streaming_{scale}.png", dpi=150)
             plot.plt.close(fig)
 
@@ -67,6 +75,7 @@ def streaming_and_physics(rows, metrics, output):
             set_metric_limits(axes.flat[0], metric, scale)
             fig.supxlabel(plot.VP_LABEL)
             fig.supylabel(plot.YLABEL[metric])
+            plot.add_figure_footnote(fig, footnote)
             fig.savefig(output / "physics" / f"{metric}_physics_{scale}.png", dpi=150)
             plot.plt.close(fig)
 
@@ -86,6 +95,9 @@ def main():
                         help="generate combined streaming and panelled physics plots (default: on)")
     parser.add_argument("--historical-charge", action="store_true",
                         help="fill missing V50 and optical/V50 from matching runs in reference/history.csv")
+    parser.add_argument("--exclude-runs", default="", help="comma-separated run IDs to omit from all plots")
+    parser.add_argument("--compact-labels", action="store_true",
+                        help="mark recovered before-cut and saved fits with an asterisk and footnote")
     args = parser.parse_args()
     if not (args.input or args.series):
         parser.error("provide at least one -i PATH or --series LABEL PATH")
@@ -94,6 +106,8 @@ def main():
         parser.error(f"output must be a new or empty directory: {output}")
 
     rows, sources, notes, labels = [], [], [], set()
+    excluded = {run.strip() for run in args.exclude_runs.split(",") if run.strip()}
+    omitted, before_cut, saved_fit = set(), [], []
     metrics = ("optical", "v50", "ratio", *plot.OPTIONAL_METRICS)
     history = {}
     if args.historical_charge:
@@ -106,7 +120,7 @@ def main():
         if not path.is_file():
             parser.error(f"results CSV not found: {path}")
         input_rows = plot.load_results(path)
-        selected = [row for row in input_rows if not row["excluded"]]
+        selected = [row for row in input_rows if not row["excluded"] and row["run"] not in excluded]
         if label is None:
             datasets = {row["dataset"] for row in selected}
             if len(datasets) != 1 or "" in datasets:
@@ -116,7 +130,12 @@ def main():
                                   ("recovered-after", "after cut"),
                                   ("recovered-saved", "saved fit")):
                 if folder in path.parts:
-                    label = f"{label} ({phase})"
+                    if args.compact_labels:
+                        if phase in ("before cut", "saved fit"):
+                            (before_cut if phase == "before cut" else saved_fit).append(label)
+                            label += "*"
+                    else:
+                        label = f"{label} ({phase})"
                     break
         if label in labels:
             parser.error(f"duplicate series label: {label}; use --series with distinct labels")
@@ -124,6 +143,10 @@ def main():
         for row in input_rows:
             if row["excluded"]:
                 notes.append((label, row["run"], "excluded", "Excluded in the selected results.csv"))
+                continue
+            if row["run"] in excluded:
+                omitted.add(row["run"])
+                notes.append((label, row["run"], "excluded", "Omitted with --exclude-runs"))
                 continue
             previous = history.get((row["dataset"], row["run"]))
             if previous and None not in (row["v_over_p"], previous["v_over_p"]) and isclose(
@@ -155,11 +178,22 @@ def main():
     for metric in ("v50", "ratio"):
         if metric not in metrics:
             warnings.append(f"{metric}: no matching data in the selected exports")
-    plot.comparison_plots(rows, output, paper, warnings, notes, metrics=metrics)
+    footnote_lines = []
+    if before_cut or saved_fit:
+        phases = []
+        if before_cut:
+            phases.append(f'{", ".join(before_cut)} uses before-cut fits.')
+        if saved_fit:
+            phases.append(f'{", ".join(saved_fit)} use saved fits with unverified spark-cut status.')
+        footnote_lines.append("* " + " ".join(phases))
+    if omitted:
+        footnote_lines.append(f'Omitted runs: {", ".join(sorted(omitted, key=plot.natural_key))}.')
+    footnote = "\n".join(footnote_lines) or None
+    plot.comparison_plots(rows, output, paper, warnings, notes, metrics=metrics, footnote=footnote)
     organiser = runpy.run_path(str(REPO / "scripts" / "organise-optical-plots.py"))
     organiser["add_plot_ids"](output, "C", organiser["COMPARISON_PLOT_ORDER"])
     if args.spo:
-        streaming_and_physics(rows, metrics, output)
+        streaming_and_physics(rows, metrics, output, footnote=footnote)
         for folder in ("streaming", "physics"):
             organiser["add_plot_ids"](output / folder, "S", organiser["SUMMARY_PLOT_ORDER"])
     plot.write_csv(output / "sources.csv", sources, ("series", "results_csv", "run_rows"))

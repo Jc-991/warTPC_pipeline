@@ -45,5 +45,6 @@ install(PROGRAMS blackbox/tpx3dump DESTINATION ${WARTPC_DATADIR} OPTIONAL)
 install(FILES blackbox/setup_blackbox.sh blackbox/spark_detection.py
   blackbox/optical_summary.py DESTINATION ${WARTPC_DATADIR})
 install(PROGRAMS plotting/plot.py DESTINATION ${WARTPC_DATADIR}/plotting)
+install(FILES plotting/run_summaries.py DESTINATION ${WARTPC_DATADIR}/plotting)
 install(FILES reference/history.csv reference/figure26_reference.png
   DESTINATION ${WARTPC_DATADIR}/reference)

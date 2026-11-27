@@ -3,6 +3,7 @@
 
 import argparse
 from pathlib import Path
+import sys
 
 
 PLOT_ORDER = (
@@ -111,3 +112,8 @@ if __name__ == "__main__":
         directory = args.directory
     if directory.is_dir():
         print(f"Organised {organise(directory)} per-run plots")
+    if args.workflow_export:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plotting"))
+        from run_summaries import write_combined_run_summary
+
+        write_combined_run_summary(args.directory)

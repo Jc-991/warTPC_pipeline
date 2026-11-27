@@ -195,6 +195,7 @@ analysis.
 - `run_conditions.md`: voltages, pressure, methane fraction, exposure and V/P
   for each run.
 - `results.csv`: the numbers behind every plot.
+- `run_summary.txt`: tab-separated optical run summaries, one row per available run.
 - `summary_plots/`, `v50_distributions/` and
   `optical_per_run/`.
 - `status.txt` and `warnings.txt`.
@@ -481,6 +482,8 @@ additional per-axis plots, prefix the optical command with
   overlays are enabled by default. Use `--no-spo` for overlays only or
   `--no-paper` to omit Figure 26. `--historical-charge` fills missing V50
   and optical/V50 from matching historical runs and records their provenance.
+  Use `--compact-labels` for footnotes on recovered fits and
+  `--exclude-runs RUN1,RUN2` to omit specific runs from the plots.
 
 ## Environment variables
 
