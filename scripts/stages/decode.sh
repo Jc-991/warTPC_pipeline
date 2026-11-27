@@ -21,6 +21,9 @@
 # is stopped, marked failed, and the next run starts. The raw dataset is never written.
 # Logs: <decoded_root>/<dataset>/logs/decode/<run>.log
 # Summary of the last pass: <decoded_root>/<dataset>/decode_status.txt
+# Report of every run attempted, all datasets, appended each time:
+#   <decoded_root>/decode_report.tsv  (time, dataset, run, result, seconds, reason)
+#   result is OK, TIMEOUT or FAILED; grep TIMEOUT to find runs over the limit
 #
 # Examples:
 #   bash scripts/stages/decode.sh -i voltage-run-18-11-26.zip -o ~/warTPC/decoded_data
@@ -29,7 +32,7 @@
 set -uo pipefail
 source "$(dirname -- "$0")/common.sh"
 
-usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; }
 
 dataset="" out_root="" tmp_root="" force=0 timeout_min=10 RUN_SELECTION=""
 while [[ $# -gt 0 ]]; do
@@ -120,6 +123,12 @@ run_limited() {
 }
 
 ok=0 skipped=0 failed=() reasons=()
+report="$out_root/decode_report.tsv"
+[[ -s "$report" ]] || printf 'time\tdataset\trun\tresult\tseconds\treason\n' > "$report"
+# report_line <run> <OK|TIMEOUT|FAILED> <seconds> <reason>
+report_line() {
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$stem" "$1" "$2" "$3" "$4" >> "$report"
+}
 echo "# decode: $dataset"
 echo "# into:   $store"
 echo "# decode: time limit per run $limit_text"
@@ -129,7 +138,8 @@ for run in "${SELECTED[@]}"; do
   raw="$src/rawdata_000000.tpx3"
   log="$target/logs/decode/$run.log"
   if [[ ! -f "$raw" ]]; then
-    echo "$run: FAILED (no rawdata_000000.tpx3)"; failed+=("$run"); reasons+=("no rawdata_000000.tpx3"); continue
+    echo "$run: FAILED (no rawdata_000000.tpx3)"; failed+=("$run"); reasons+=("no rawdata_000000.tpx3")
+    report_line "$run" FAILED "" "no rawdata_000000.tpx3"; continue
   fi
   mkdir -p "$dst"
   # settings.csv is the only other file the analysis reads.
@@ -157,6 +167,7 @@ for run in "${SELECTED[@]}"; do
     mv -f -- "$partial" "$dst/output.hdf5"
     echo "# result: OK (${took} s)" >> "$log"
     echo "$run: OK (${took} s)"; ok=$((ok + 1))
+    report_line "$run" OK "$took" ""
   else
     rm -f -- "$partial"  # an earlier good output.hdf5 (with --force) is left alone
     if (( rc == 124 )); then
@@ -168,6 +179,8 @@ for run in "${SELECTED[@]}"; do
     fi
     echo "# result: FAILED ($reason)" >> "$log"
     echo "$run: FAILED ($reason; see $log)"; failed+=("$run"); reasons+=("$reason")
+    if (( rc == 124 )); then report_line "$run" TIMEOUT "$took" "$reason"
+    else report_line "$run" FAILED "$took" "$reason"; fi
   fi
 done
 
@@ -177,4 +190,5 @@ done
     echo "# FAILED ${failed[$i]}: ${reasons[$i]} (log: logs/decode/${failed[$i]}.log)"
   done
 } | tee "$target/decode_status.txt"
+echo "# report: $report"
 (( ${#failed[@]} == 0 ))

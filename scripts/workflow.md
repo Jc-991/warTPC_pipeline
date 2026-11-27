@@ -142,7 +142,12 @@ only what the analysis reads:
 │   └── settings.csv     ID, pressure, voltages, methane fraction
 ├── logs/decode/<run>.log
 └── decode_status.txt    last pass: decoded, skipped, failed (with the reason)
+~/warTPC/decoded_data/decode_report.tsv   every run attempted, all datasets (appended)
 ```
+
+`decode_report.tsv` has one line per run each time it is decoded: time,
+dataset, run, `OK` / `TIMEOUT` / `FAILED`, seconds and the reason. To list the
+runs that went over the time limit: `grep TIMEOUT ~/warTPC/decoded_data/decode_report.tsv`.
 
 - Runs already decoded are skipped; `--force` redoes them. `settings.csv` is
   refreshed if the raw dataset's copy has changed.
