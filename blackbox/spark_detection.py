@@ -64,13 +64,32 @@ def draw_plot_statistics(ax, lines, *, x=0.02, y=0.97):
             bbox=dict(facecolor="white", edgecolor=".5", alpha=0.92))
 
 
+def removal_description(mode, grouped, veto_before=0.0, veto_after=0.0, excluded=None):
+    """One line naming the spark removal that was applied, for plot titles."""
+    if grouped:
+        width_ms = GROUPED_SPARK_WIDTH_TICKS / TOA_TICKS_PER_SECOND * 1000
+        rule = f"{width_ms:g} ms windows with summed ToT > mean + {TOT_CUT_RMS} RMS"
+    else:
+        rule = f"hits with ToT > mean + {TOT_CUT_RMS} RMS"
+    if mode != "remove":
+        return f"Spark tagging: {rule} (not removed)"
+    if veto_before > 0 or veto_after > 0:
+        window = f"removed from −{veto_before:g} s to +{veto_after:g} s around each"
+    else:
+        window = "only the flagged windows removed" if grouped else "flagged hits removed"
+    text = f"Spark removal: {rule}; {window}"
+    if excluded is not None:
+        text += f" ({excluded:.3g} s excluded)"
+    return text
+
+
 def flag_sparks(tot):
     """Flag each hit strictly above the all-hit ToT cut."""
     cutoff = float(np.mean(tot) + TOT_CUT_RMS * np.std(tot)) if len(tot) else None
     return cutoff, tot > cutoff if cutoff is not None else np.zeros(0, dtype=bool)
 
 
-def save_tot_distribution(tot, output, removed=None, *, grouped=False):
+def save_tot_distribution(tot, output, removed=None, *, grouped=False, description=None):
     """Plot individual or time-grouped ToT values with the cut marked."""
     from matplotlib import pyplot as plt
 
@@ -102,6 +121,8 @@ def save_tot_distribution(tot, output, removed=None, *, grouped=False):
             xlim=(left - padding, right + padding), yscale="log",
             title="Grouped ToT distribution and spark cut" if grouped else "Hit ToT distribution and spark cut",
         )
+        if description:  # narrower than the time plot: rule and window on separate lines
+            ax.set_title(f"{ax.get_title()}\n" + description.replace("; ", ";\n"), fontsize=10)
         ax.legend()
         draw_plot_statistics(ax, plot_statistics(tot, edges[0], edges[-1], "ToT"))
         fig.savefig(output, dpi=170)
@@ -109,7 +130,8 @@ def save_tot_distribution(tot, output, removed=None, *, grouped=False):
         plt.close(fig)
 
 
-def save_tot_spectrum(seconds, tot, width, output, removed=None, *, spark_times=None):
+def save_tot_spectrum(seconds, tot, width, output, removed=None, *, spark_times=None,
+                      windows=None, description=None):
     """Plot the unfiltered ToT distribution as a function of run time."""
     from matplotlib import pyplot as plt
     from matplotlib.colors import LogNorm
@@ -160,6 +182,14 @@ def save_tot_spectrum(seconds, tot, width, output, removed=None, *, spark_times=
                     ax.annotate(str(index), (time, 1), xycoords=ax.get_xaxis_transform(),
                                 xytext=(0, 2), textcoords="offset points", ha="center",
                                 va="bottom", color="tab:red", fontsize=8)
+        if windows:
+            # The removed time windows (veto around each spark), clipped to the run.
+            for index, (start, stop) in enumerate(windows):
+                ax.axvspan(max(start, edges[0]), min(stop, edges[-1]), color="tab:red", alpha=0.18,
+                           linewidth=0, label="Removed window" if index == 0 else None)
+            ax.legend(loc="upper right")
+        if description:
+            ax.set_title(f"{ax.get_title()}\n{description}", fontsize=10)
         max_tot = float(np.max(tot))
         ax.set_ylim(top=1.1 * max_tot if max_tot > 0 else tot_edges[-1])
         lines = plot_statistics(tot, tot_edges[0], tot_edges[-1], "ToT")
@@ -209,7 +239,8 @@ def spark_cut(toa, tot, report_path, *, mode=None, veto_before=None, veto_after=
             elapsed = elapsed_toa(toa)
             seconds = elapsed / TOA_TICKS_PER_SECOND
             save_tot_spectrum(seconds, tot, width,
-                              report.with_name("tot-vs-time-before-sparks.png"))
+                              report.with_name("tot-vs-time-before-sparks.png"),
+                              description=removal_description(mode, grouped, veto_before, veto_after))
             if grouped:
                 bins, inverse, _, values = group_tot(elapsed, tot, GROUPED_SPARK_WIDTH_TICKS)
                 cutoff, flagged = flag_sparks(values)
@@ -300,10 +331,15 @@ def spark_cut(toa, tot, report_path, *, mode=None, veto_before=None, veto_after=
                               report.with_name("tot-vs-time-spark-removal.png"),
                               removed=removed_mask,
                               spark_times=[(start + stop) / (2 * TOA_TICKS_PER_SECOND)
-                                           for start, stop in intervals] if grouped else None)
+                                           for start, stop in intervals] if grouped else None,
+                              windows=[(start / TOA_TICKS_PER_SECOND, stop / TOA_TICKS_PER_SECOND)
+                                       for start, stop in vetoes] or None,
+                              description=removal_description(mode, grouped, veto_before, veto_after,
+                                                              excluded if grouped else None))
         histogram_mask = flagged if mode == "remove" else None
         save_tot_distribution(values, report.with_name("tot-distribution-before-sparks.png"),
-                              histogram_mask, grouped=grouped)
+                              histogram_mask, grouped=grouped,
+                              description=removal_description(mode, grouped, veto_before, veto_after))
     return keep, duration, excluded
 
 

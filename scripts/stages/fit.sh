@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # Spark cut and optical fits, from the decoded HDF5 made by decode.sh (no tpx3dump).
 #
-#   fit.sh -r <results_dir> [-d <decoded_dataset_dir>] --spark off|remove
+#   fit.sh -r <results_dir> -d <decoded_dataset_dir> --spark off|remove
 #          [--veto BEFORE,AFTER] [--runs LIST] [--into DIR] [--rebin-x off|N] [--analysis FILE]
 #
-#   -d DIR           decoded dataset from decode.sh, e.g. ~/warTPC/decoded_data/<dataset>;
-#                    remembered as the link <results_dir>/decoded, so later calls
-#                    on the same results folder can leave it out
+#   -d DIR           decoded dataset from decode.sh, e.g. ~/warTPC/decoded_data/<dataset>
+#                    (read only; nothing from it is copied or linked into the results)
 #   --spark off      no cut; writes <results_dir>/before/optical/<run>/
 #   --spark remove   5 ms grouped spark cut; writes <results_dir>/optical/<run>/
 #   --veto 1,20      also remove hits 1 s before to 20 s after each flagged window
@@ -14,7 +13,7 @@
 #   --analysis FILE  use another analysis script (default blackbox/optical-analysis.py)
 #
 # Reads <decoded_dataset_dir>/optical/<run>/{output.hdf5,settings.csv}. Each selected run's
-# folder is replaced; other runs are kept. Afterwards the folder's
+# folder is replaced (without output.hdf5); other runs are kept. Afterwards the folder's
 # optical/results/signals.csv, optical_status.txt and spark_counts.csv are
 # rebuilt from every run in it. Per-run logs: <dest>/logs/fit/<run>.log
 
@@ -48,16 +47,10 @@ done
 [[ -z "$veto" || "$spark" == remove ]] || die "--veto needs --spark remove"
 mkdir -p "$results" || die "cannot create $results"
 results=$(cd "$results" && pwd)
-if [[ -n "$decoded_in" ]]; then
-  [[ -d "$decoded_in/optical" ]] || die "$decoded_in has no optical/ folder; decode it first with decode.sh"
-  link_target=$(cd "$decoded_in/optical" && pwd -P)
-  if [[ -L "$results/decoded" ]]; then rm -f -- "$results/decoded"
-  elif [[ -e "$results/decoded" ]]; then die "$results/decoded exists and is not a link; move it away first"
-  fi
-  ln -s -- "$link_target" "$results/decoded" || die "cannot link $results/decoded"
-fi
-[[ -d "$results/decoded" ]] || die "no decoded data for $results; pass -d <decoded_dataset_dir>"
-decoded=$(cd "$results/decoded" && pwd -P)  # may be a link into the decoded_data store
+[[ -n "$decoded_in" ]] || die "pass -d <decoded_dataset_dir>, e.g. ~/warTPC/decoded_data/<dataset>"
+[[ -d "$decoded_in/optical" ]] || die "$decoded_in has no optical/ folder; decode it first with decode.sh"
+decoded=$(cd "$decoded_in/optical" && pwd -P)
+[[ -L "$results/decoded" ]] && rm -f -- "$results/decoded"  # link left by older versions
 [[ -n "$into" ]] || { [[ "$spark" == off ]] && into=before || into=.; }
 [[ "$into" != /* && "$into" != *..* ]] || die "--into must be a folder inside the results directory"
 dest="$results/$into"; dest=${dest%/.}
@@ -68,7 +61,7 @@ analysis="$(cd "$(dirname -- "$analysis")" && pwd)/$(basename -- "$analysis")"
 available=()
 while IFS= read -r r; do available+=("$r"); done < <(list_run_dirs "$decoded")
 select_runs "${available[@]+"${available[@]}"}"
-(( ${#SELECTED[@]} > 0 )) || die "no decoded runs in $results/decoded"
+(( ${#SELECTED[@]} > 0 )) || die "no decoded runs in $decoded"
 load_environment
 
 export WARTPC_SPARK_METHOD=grouped WARTPC_SPARK_MODE="$spark" WARTPC_REBIN=1 WARTPC_REBIN_X="$rebin_x"
@@ -107,6 +100,7 @@ for run in "${SELECTED[@]}"; do
   (cd "$BLACKBOX" && PYTHONPATH="$BLACKBOX${PYTHONPATH:+:$PYTHONPATH}" \
      "$PYTHON" "$analysis" "$dest/optical" "$run" output.hdf5) >>"$log" 2>&1
   rc=$?
+  rm -f -- "$dst/output.hdf5"  # only a link to the decoded data; not kept in the results
   if [[ -s "$dst/integral.csv" ]]; then
     echo "# result: OK" >> "$log"; echo "$run: OK"
   else

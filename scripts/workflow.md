@@ -156,9 +156,9 @@ runs that went over the time limit: `grep TIMEOUT ~/warTPC/decoded_data/decode_r
   the others; redo it with `--runs <run>` (and a longer `--timeout` if needed).
 - Charge has no decode step (it reads `waveforms.csv` from the raw dataset), so
   nothing for charge is stored here.
-- Results folders link to the stored HDF5 rather than copying it
-  (`<name>_results/decoded` points at `decoded_data/<name>/optical`), so
-  **keep the decoded folder** while you still use those results.
+- Results folders hold no HDF5: `fit.sh` links each run's `output.hdf5` only
+  while it fits and removes the link afterwards. Refits read `decoded_data`
+  again, so keep it.
 
 ## Optical stages: running one step at a time
 
@@ -168,12 +168,17 @@ After decoding, the optical part of `workflow.sh` is three scripts in
 (names or quoted patterns such as `'vr22-1*'`), and prints `-h` help. When
 something breaks, rerun only the failing stage.
 
+`workflow.sh` deletes `R/before/` and `R/paired/` after the pair step; the
+before plots are then in `R/plots/optical_per_run/` and any pairing problems
+are in the workflow log. Running the stages by hand
+keeps them.
+
 | Stage | Command | Reads | Writes |
 |---|---|---|---|
-| fit, uncut | `stages/fit.sh -r R -d <decoded_dataset_dir> --spark off` | `decoded_data/<name>/optical/` (remembered as `R/decoded`, so `-d` can be left out later) | `R/before/optical/<run>/`, `R/before/optical_status.txt`; log `R/before/logs/fit/<run>.log` |
-| fit, cut | `stages/fit.sh -r R --spark remove [--veto 1,20]` | `R/decoded/` | `R/optical/<run>/`, `R/optical_status.txt`, `R/spark_counts.csv`; log `R/logs/fit/<run>.log` |
+| fit, uncut | `stages/fit.sh -r R -d <decoded_dataset_dir> --spark off` | `decoded_data/<name>/optical/` | `R/before/optical/<run>/`, `R/before/optical_status.txt`; log `R/before/logs/fit/<run>.log` |
+| fit, cut | `stages/fit.sh -r R -d <decoded_dataset_dir> --spark remove [--veto 1,20]` | `decoded_data/<name>/optical/` | `R/optical/<run>/`, `R/optical_status.txt`, `R/spark_counts.csv`; log `R/logs/fit/<run>.log` |
 | plot | `stages/plot.sh -r R --from before`, then `stages/plot.sh -r R` | the fit folder | `R/before/plots/`, `R/plots/` (replaced each time) |
-| pair | `stages/pair.sh -r R` | `R/before/plots/`, `R/plots/` | `R/paired/` (kept), then `R/plots/optical_per_run/` and the plot IDs |
+| pair | `stages/pair.sh -r R` | `R/before/plots/`, `R/plots/` | `R/paired/`, then `R/plots/optical_per_run/` and the plot IDs |
 
 Notes:
 - `fit.sh` runs `blackbox/optical-analysis.py` directly on the decoded HDF5, so

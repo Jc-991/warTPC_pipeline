@@ -34,7 +34,7 @@ for z in /storage/phsccs_grp/transfer/voltage-run-*.zip; do bash scripts/stages/
 | Script | Does | Key options |
 |---|---|---|
 | `decode.sh` | ZIP or raw folder → `decoded_data/<dataset>/optical/<run>/` | `--runs`, `--force`, `--timeout MIN` (default 10, 0 = none), `--tmp DIR` |
-| `fit.sh` | Spark cut and `optical-analysis.py` on the decoded HDF5 | `-r <results>`, `-d <decoded dataset>` (remembered as `<results>/decoded`), `--spark off\|remove`, `--veto B,A`, `--runs`, `--rebin-x`, `--analysis FILE` |
+| `fit.sh` | Spark cut and `optical-analysis.py` on the decoded HDF5 | `-r <results>`, `-d <decoded dataset>` (required), `--spark off\|remove`, `--veto B,A`, `--runs`, `--rebin-x`, `--analysis FILE` |
 | `plot.sh` | `build/plot` on one fit folder | `--from before`, `--organise` (only when `pair.sh` will not run) |
 | `pair.sh` | Before/after pairs into `plots/optical_per_run/`, then plot IDs | `--runs` |
 
@@ -44,8 +44,8 @@ for z in /storage/phsccs_grp/transfer/voltage-run-*.zip; do bash scripts/stages/
   `--run optical` and `--plot` are still accepted for older commands.
 - `fit.sh` clears a run's folder before fitting, so a failed fit cannot leave an
   old `integral.csv`. `optical_status.txt` names runs that were never decoded.
-- Results folders link to the decoded HDF5. Keep `decoded_data` while those
-  results are in use.
+- Results folders hold no HDF5 and no `decoded` link. `workflow.sh` deletes
+  `before/` and `paired/` after the pair step, leaving `optical/`, `logs/` and `plots/`.
 - A rerun of selected runs into an existing `<dataset>_results` goes to
   `<dataset>_results-01`, `-02`, … (no more random suffixes).
   `run-vr22-spark-study.sh` writes `vr22-spark-study-01`, `-02`, ….

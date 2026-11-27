@@ -196,6 +196,9 @@ if [[ -d "$results/optical" ]]; then
     if bash "$STAGES/plot.sh" -r "$results" --dataset "$stem" ${kind:+--kind "$kind"}; then
       echo "--- 3. pair before/after ---"
       bash "$STAGES/pair.sh" -r "$results" ${selection:+--runs "$selection"} || status=1
+      # The before plots are now in plots/optical_per_run/; only plots/ is kept.
+      # Any pairing problems are listed above (and in the workflow log).
+      rm -rf -- "$results/before" "$results/paired"
     else
       status=1
     fi
