@@ -4,7 +4,7 @@ Three scripts take an uploaded dataset from `/storage/phsccs_grp/transfer/` to
 plots. The first two run once per dataset, when it is imported:
 
 1. **`unzip.sh`** unzips the ZIP into a data folder.
-2. **`stages/decode.sh`** decodes the optical raw data once into
+2. **`stages/decode.sh`** decodes the optical raw data (straight from the ZIP) once into
    `~/warTPC/decoded_data/<name>/` (see [Decoding on import](#decoding-on-import)).
 3. **`workflow.sh`** analyses the decoded data: spark cut, fits, then the plots
    listed in `PLOT_GUIDE.md`. It is optical only; charge is run on its own
@@ -116,11 +116,24 @@ descriptive name such as `pressure-pass-06` gives the clearest plots.
 ## Decoding on import
 
 ```bash
-bash scripts/stages/decode.sh -i <raw_dataset_dir> -o ~/warTPC/decoded_data [--runs LIST] [--force] [--timeout MIN]
+bash scripts/stages/decode.sh -i <dataset.zip | raw_dataset_dir> -o ~/warTPC/decoded_data [--runs LIST] [--force] [--timeout MIN] [--tmp DIR]
 ```
 
-Run this once per dataset, when it is imported. It runs `tpx3dump` on every
-`optical/<run>/rawdata_000000.tpx3` and keeps only what the analysis reads:
+Run this once per dataset, when it is imported. `-i` can be the uploaded ZIP
+itself: a bare name such as `voltage-run-18-11-26.zip` is found in
+`/storage/phsccs_grp/transfer/`. The ZIP is unzipped into a temporary folder
+(inside the output folder, or `--tmp DIR`), decoded, and the temporary copy is
+deleted, so no unzipped raw copy is kept. A ZIP whose runs are all decoded
+already is skipped without unzipping. All uploaded voltage runs at once:
+
+```bash
+for z in /storage/phsccs_grp/transfer/voltage-run-*.zip; do
+  bash scripts/stages/decode.sh -i "$z" -o ~/warTPC/decoded_data
+done
+```
+
+It runs `tpx3dump` on every `optical/<run>/rawdata_000000.tpx3` and keeps
+only what the analysis reads:
 
 ```
 ~/warTPC/decoded_data/<name>/
