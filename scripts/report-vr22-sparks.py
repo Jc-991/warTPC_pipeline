@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import sys
+from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "blackbox"))
 from optical_summary import (
@@ -46,10 +47,30 @@ def copy_plot(source, destination, issues):
         issues.append(f"missing {destination.name}")
 
 
-def copy_run_plots(before_plots, after_plots, diagnostics, destination, issues):
+def label_plot(path, label):
+    with Image.open(path) as source:
+        image = source.convert("RGB")
+        dpi = source.info.get("dpi", (150, 150))
+    size = max(16, round(image.width * 0.018))
+    try:
+        font = ImageFont.load_default(size=size)
+    except TypeError:  # Pillow versions before scalable default fonts
+        font = ImageFont.load_default()
+    canvas = Image.new("RGB", (image.width, image.height + 3 * size), "white")
+    draw = ImageDraw.Draw(canvas)
+    left, top, right, bottom = draw.textbbox((0, 0), label, font=font)
+    draw.text(((image.width - (right - left)) / 2 - left,
+               (3 * size - (bottom - top)) / 2 - top), label, fill="black", font=font)
+    canvas.paste(image, (0, 3 * size))
+    canvas.save(path, dpi=dpi)
+
+
+def copy_run_plots(before_plots, after_plots, diagnostics, destination, issues, spark_label):
     """Copy the ten per-run figures (available ones) with explicit before/after filenames."""
     name = "2D_integrated_ToT.png"
     copy_plot(after_plots / name, destination / name, issues)
+    if (destination / name).is_file():
+        label_plot(destination / name, f"After spark removal | {spark_label}")
     for name in DIAGNOSTICS:
         source = after_plots / name
         if not source.is_file():
@@ -59,9 +80,13 @@ def copy_run_plots(before_plots, after_plots, diagnostics, destination, issues):
         for phase, folder in (("before", before_plots), ("after", after_plots)):
             output = destination / f"{Path(name).stem}_{phase}.png"
             copy_plot(folder / name, output, issues)
+            if output.is_file():
+                label_plot(output, f"{phase.capitalize()} spark removal | {spark_label}")
     for phase, folder in (("before", before_plots), ("after", after_plots)):
         for source in folder.parent.glob(f"{folder.name}_*_fit_distribution.png"):
-            shutil.copy2(source, destination.parent / f"{source.stem}_{phase}.png")
+            output = destination.parent / f"{source.stem}_{phase}.png"
+            shutil.copy2(source, output)
+            label_plot(output, f"{phase.capitalize()} spark removal | {spark_label}")
         variations = folder / "projection_variations.csv"
         if variations.is_file():
             shutil.copy2(variations, destination / f"projection_variations_{phase}.csv")
@@ -87,10 +112,20 @@ def main():
         destination.mkdir(parents=True)
         row = {"run": run}
         issues = []
+        spark_label = "Spark settings unavailable"
         summary.append(row)
         try:
             text = (cleaned / "diagnostics" / "spark_status.txt").read_text()
             report = dict(line.split(": ", 1) for line in text.splitlines() if ": " in line)
+            width = report.get("Grouping width (s)")
+            padding = report.get("Veto before/after each flagged window (s)")
+            if width is not None:
+                spark_label = f"{1000 * float(width):g} ms spark windows"
+                if padding:
+                    before_padding, after_padding = padding.split(" / ")
+                    spark_label += f" | Veto ({-float(before_padding):+g}, {float(after_padding):+g}) s"
+                else:
+                    spark_label += " | Veto off"
             if report["Mode"] != "remove":
                 issues.append("spark mode was not remove")
             count = int(report["Candidate intervals"])
@@ -134,7 +169,7 @@ def main():
             issues.append(f"optical integral unavailable: {error}")
 
         before_plots = args.before / "plots" / "optical_per_run" / run
-        copy_run_plots(before_plots, plots, cleaned / "diagnostics", destination, issues)
+        copy_run_plots(before_plots, plots, cleaned / "diagnostics", destination, issues, spark_label)
         row["issues"] = "; ".join(issues)
         write_text_summary(destination / "run_summary.txt", row)
         print(f"{run}: spark count {row.get('spark_count', 'unavailable')}"
