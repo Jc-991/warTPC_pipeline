@@ -102,7 +102,30 @@ if __name__ == "__main__":
     parser.add_argument("directory", type=Path)
     parser.add_argument("--workflow-export", action="store_true",
                         help="number plots in the workflow's top-level plots folder")
+    parser.add_argument("--spark-settings", nargs=2, metavar=("MODE", "VETO"),
+                        help="label every PNG beneath the workflow plots folder")
     args = parser.parse_args()
+    if args.spark_settings is not None:
+        from importlib import import_module
+
+        label_plot = import_module("report-vr22-sparks").label_plot
+        mode, veto = args.spark_settings
+        if mode == "off":
+            label = "Spark removal off"
+        else:
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "blackbox"))
+            from spark_detection import GROUPED_SPARK_WIDTH_TICKS, TOA_TICKS_PER_SECOND
+
+            width = 1000 * GROUPED_SPARK_WIDTH_TICKS / TOA_TICKS_PER_SECOND
+            label = f"{width:g} ms spark windows"
+            if veto:
+                before, after = map(float, veto.split(","))
+                label += f" | Veto ({-before:+g}, {after:+g}) s"
+            else:
+                label += " | Veto off"
+        for path in sorted(args.directory.rglob("*.png")):
+            label_plot(path, label)
+        sys.exit(0)
     if args.workflow_export:
         add_plot_ids(args.directory / "summary_plots", "S", SUMMARY_PLOT_ORDER)
         add_plot_ids(args.directory / "comparisons", "S", SUMMARY_PLOT_ORDER)

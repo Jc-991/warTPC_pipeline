@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import sys
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, PngImagePlugin
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "blackbox"))
 from optical_summary import (
@@ -49,20 +49,36 @@ def copy_plot(source, destination, issues):
 
 def label_plot(path, label):
     with Image.open(path) as source:
+        if source.info.get("Spark settings style") == "legend":
+            return
+        previous_label = source.info.get("Spark settings")
         image = source.convert("RGB")
         dpi = source.info.get("dpi", (150, 150))
     size = max(16, round(image.width * 0.018))
+    band = 3 * size
+    if previous_label:
+        label = previous_label
+        image = image.crop((0, band, image.width, image.height))
     try:
         font = ImageFont.load_default(size=size)
     except TypeError:  # Pillow versions before scalable default fonts
         font = ImageFont.load_default()
-    canvas = Image.new("RGB", (image.width, image.height + 3 * size), "white")
+    canvas = Image.new("RGB", (image.width, image.height + band), "white")
     draw = ImageDraw.Draw(canvas)
     left, top, right, bottom = draw.textbbox((0, 0), label, font=font)
-    draw.text(((image.width - (right - left)) / 2 - left,
-               (3 * size - (bottom - top)) / 2 - top), label, fill="black", font=font)
-    canvas.paste(image, (0, 3 * size))
-    canvas.save(path, dpi=dpi)
+    x = image.width - (right - left) - 3 * size
+    y = (band - (bottom - top)) / 2
+    padding = size / 2
+    draw.rounded_rectangle(
+        (x - padding, y - padding, x + right - left + padding, y + bottom - top + padding),
+        radius=padding / 2, fill="#f7f7f7", outline="#777777",
+    )
+    draw.text((x - left, y - top), label, fill="black", font=font)
+    canvas.paste(image, (0, band))
+    metadata = PngImagePlugin.PngInfo()
+    metadata.add_text("Spark settings", label)
+    metadata.add_text("Spark settings style", "legend")
+    canvas.save(path, dpi=dpi, pnginfo=metadata)
 
 
 def copy_run_plots(before_plots, after_plots, diagnostics, destination, issues, spark_label):

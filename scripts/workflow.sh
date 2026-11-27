@@ -206,6 +206,14 @@ if [[ -d "$results/optical" ]]; then
 else
   status=1; echo "plot skipped: no analysis results in $results"
 fi
+if [[ -d "$results/plots" ]]; then
+  (
+    source "$STAGES/common.sh"
+    load_environment
+    "$PYTHON" "$REPO/scripts/organise-optical-plots.py" "$results/plots" \
+      --spark-settings "$sparks" "$veto"
+  ) || status=1
+fi
 # Only plots/ (with the before/after pairs in optical_per_run/), optical/ fit
 # tables and logs/ are kept, whatever happened above. Problems are in this log.
 rm -rf -- "$results/before" "$results/paired"
